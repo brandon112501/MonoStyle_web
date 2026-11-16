@@ -15,20 +15,33 @@ export const orderService = {
     return data;
   },
 
-  // Crear una nueva orden / servicio (Conectado al formulario)
-  async create(orderData: { descripcion: string; id_cliente: number; id_empleado: number; id_estado_orden: number }) {
-    const { data, error } = await supabase
-      .from('orden')
-      .insert([orderData])
-      .select();
+async create(orderData: {
+  descripcion: string;
+  id_cliente: number;
+  id_empleado: number;
+  id_estado_orden: number;
+  id_motocicleta: number;
+  fecha: string;
+}) {
+  const { data, error } = await supabase
+    .from('orden')
+    .insert([orderData])
+    .select();
 
-    if (error) {
-      console.error('Error al crear orden en Supabase:', error);
-      throw error;
-    }
-    return data;
-  },
+  if (error) {
+    console.error('Error al crear orden en Supabase:', error);
+    throw error;
+  }
+  return data;
+},
 
+async addDetalles(detalles: { cantidad: number; precio: number; id_orden: number; id_referencia: number }[]) {
+  const { error } = await supabase.from('detalle_orden').insert(detalles);
+  if (error) {
+    console.error('Error al guardar productos de la orden:', error);
+    throw error;
+  }
+},
   // Eliminar una orden por su ID
   async delete(id: number) {
     const { error } = await supabase
