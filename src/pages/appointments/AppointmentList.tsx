@@ -1,0 +1,1 @@
+import React from 'react'; export const AppointmentList: React.FC = () => <div>Citas</div>; export default AppointmentList;

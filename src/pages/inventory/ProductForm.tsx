@@ -1,0 +1,1 @@
+import React from 'react'; export const ProductForm: React.FC = () => <div>Formulario Producto</div>; export default ProductForm;

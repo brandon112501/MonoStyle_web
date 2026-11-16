@@ -1,0 +1,1 @@
+import React from 'react'; export const AppointmentForm: React.FC = () => <div>Formulario Cita</div>; export default AppointmentForm;

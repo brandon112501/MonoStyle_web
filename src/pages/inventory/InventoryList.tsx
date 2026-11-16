@@ -1,0 +1,1 @@
+import React from 'react'; export const InventoryList: React.FC = () => <div>Inventario</div>; export default InventoryList;

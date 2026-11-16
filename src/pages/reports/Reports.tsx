@@ -1,0 +1,1 @@
+import React from 'react'; export const Reports: React.FC = () => <div>Reportes</div>; export default Reports;

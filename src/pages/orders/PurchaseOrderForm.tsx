@@ -1,0 +1,1 @@
+import React from 'react'; export const PurchaseOrderForm: React.FC = () => <div>Form Orden Compra</div>; export default PurchaseOrderForm;

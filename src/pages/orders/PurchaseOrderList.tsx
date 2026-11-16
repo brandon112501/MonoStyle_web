@@ -1,0 +1,1 @@
+import React from 'react'; export const PurchaseOrderList: React.FC = () => <div>Órdenes de Compra</div>; export default PurchaseOrderList;
