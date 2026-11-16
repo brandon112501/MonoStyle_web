@@ -2,11 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import logoMonostyle from '../../assets/logo.png';
 import { orderService } from '../../api/orderService';
+import { supabase } from '../../api/supabaseCliente';
 
 export default function ServiceList() {
     const [adminName, setAdminName] = useState('SuperAdmin');
     const [clientes, setClientes] = useState<any[]>([]);
     const [empleados, setEmpleados] = useState<any[]>([]);
+    const [motos, setMotos] = useState<any[]>([]);
+    const [referencias, setReferencias] = useState<any[]>([]);
 
     const [isCreating, setIsCreating] = useState(false);
     const [orders, setOrders] = useState<any[]>([]);
@@ -14,10 +17,13 @@ export default function ServiceList() {
     const [searchTerm, setSearchTerm] = useState('');
     const [error, setError] = useState('');
 
+    const [prodSel, setProdSel] = useState('');
+    const [cantidadSel, setCantidadSel] = useState(1);
+
     const [formData, setFormData] = useState({
         id_cliente: '',
         fecha: new Date().toISOString().split('T')[0],
-        vehiculo: '',
+        id_motocicleta: '',
         observaciones: '',
         servicio: '',
         id_empleado: ''
@@ -26,6 +32,7 @@ export default function ServiceList() {
     const [productos, setProductos] = useState<any[]>([]);
     const navigate = useNavigate();
 
+    // Carga inicial: usuario, órdenes y listas para el formulario
     useEffect(() => {
         const storedUser = localStorage.getItem('user');
         if (storedUser) {
@@ -40,11 +47,29 @@ export default function ServiceList() {
         fetchDirectFromSupabase();
     }, []);
 
+    // Cuando cambia el cliente, cargar sus motocicletas
+    useEffect(() => {
+        setFormData(prev => ({ ...prev, id_motocicleta: '' }));
+        if (!formData.id_cliente) {
+            setMotos([]);
+            return;
+        }
+        supabase
+            .from('motocicleta')
+            .select('id_motocicleta, modelo, placa, anio, color')
+            .eq('id_cliente', Number(formData.id_cliente))
+            .then(({ data, error }) => {
+                if (error) console.error('Error cargando motos:', error);
+                setMotos(data || []);
+            });
+    }, [formData.id_cliente]);
+
     const fetchOrders = async () => {
         try {
             setLoading(true);
             const data = await orderService.getAll();
             setOrders(data || []);
+            setError('');
         } catch (err: any) {
             console.error('Error al cargar órdenes:', err);
             setError('No se pudieron cargar los servicios.');
@@ -53,38 +78,19 @@ export default function ServiceList() {
         }
     };
 
-    // Petición HTTP nativa directa a Supabase (sin tokens de sesión que fallen)
+    // Carga clientes, empleados y productos desde Supabase
     const fetchDirectFromSupabase = async () => {
-        const supabaseUrl = 'https://umvfiaquovixeeolamks.supabase.co';
-        const anonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtdmlmaWFxdW92aXhlZW9sYW1rcyIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNzM2MTU5NjU0LCJleHAiOjIwNTE3MzU2NTR9.1';
+        const { data: clientesData, error: errC } = await supabase.from('cliente').select('*');
+        if (errC) console.error('Error clientes:', errC);
+        else setClientes(clientesData || []);
 
-        try {
-            // Cargar Clientes
-            const resClientes = await fetch(`${supabaseUrl}/rest/v1/cliente?select=*`, {
-                headers: {
-                    'apikey': anonKey,
-                    'Authorization': `Bearer ${anonKey}`
-                }
-            });
-            if (resClientes.ok) {
-                const dataC = await resClientes.json();
-                setClientes(dataC);
-            }
+        const { data: empleadosData, error: errE } = await supabase.from('empleado').select('*');
+        if (errE) console.error('Error empleados:', errE);
+        else setEmpleados(empleadosData || []);
 
-            // Cargar Empleados
-            const resEmpleados = await fetch(`${supabaseUrl}/rest/v1/empleado?select=*`, {
-                headers: {
-                    'apikey': anonKey,
-                    'Authorization': `Bearer ${anonKey}`
-                }
-            });
-            if (resEmpleados.ok) {
-                const dataE = await resEmpleados.json();
-                setEmpleados(dataE);
-            }
-        } catch (err) {
-            console.error('Error en fetch directo:', err);
-        }
+        const { data: refData, error: errR } = await supabase.from('referencia').select('*');
+        if (errR) console.error('Error productos:', errR);
+        else setReferencias(refData || []);
     };
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -93,28 +99,80 @@ export default function ServiceList() {
     };
 
     const handleAddProduct = () => {
-        const nuevoProd = { id: Date.now(), nombre: 'Aceite Motor 4T', cantidad: 1, precio: 35000, subtotal: 35000 };
-        setProductos([...productos, nuevoProd]);
+        const ref = referencias.find(r => String(r.id) === prodSel);
+        if (!ref) { alert('Selecciona un producto.'); return; }
+        if (cantidadSel <= 0) { alert('La cantidad debe ser mayor a 0.'); return; }
+
+        const yaAgregado = productos
+            .filter(p => p.id_referencia === ref.id)
+            .reduce((s, p) => s + p.cantidad, 0);
+        if (yaAgregado + cantidadSel > Number(ref.stock)) {
+            alert(`Stock insuficiente. Disponible: ${ref.stock}`);
+            return;
+        }
+
+        const precio = Number(ref.precio) || 0;
+        setProductos([...productos, {
+            id: Date.now(),
+            id_referencia: ref.id,
+            nombre: ref.descripcion,
+            cantidad: cantidadSel,
+            precio,
+            subtotal: precio * cantidadSel
+        }]);
+        setProdSel('');
+        setCantidadSel(1);
+    };
+
+    const handleRemoveProduct = (id: number) => {
+        setProductos(productos.filter(p => p.id !== id));
     };
 
     const handleSaveService = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        if (!formData.id_cliente || !formData.id_motocicleta || !formData.id_empleado) {
+            alert('Selecciona cliente, vehículo y empleado.');
+            return;
+        }
+
         try {
-            await orderService.create({
-                descripcion: formData.observaciones || formData.servicio,
+            const creada = await orderService.create({
+                descripcion: formData.observaciones
+                    ? `${formData.servicio} - ${formData.observaciones}`
+                    : formData.servicio,
                 id_cliente: Number(formData.id_cliente),
                 id_empleado: Number(formData.id_empleado),
-                id_estado_orden: 1
+                id_estado_orden: 1,
+                id_motocicleta: Number(formData.id_motocicleta),
+                fecha: formData.fecha
             });
+
+            const idOrden = creada[0].id_orden;
+            if (productos.length > 0) {
+                await orderService.addDetalles(productos.map(p => ({
+                    cantidad: p.cantidad,
+                    precio: p.precio,
+                    id_orden: idOrden,
+                    id_referencia: p.id_referencia
+                })));
+            }
 
             alert('¡Orden de servicio registrada con éxito!');
             setIsCreating(false);
-            setFormData({ id_cliente: '', fecha: new Date().toISOString().split('T')[0], vehiculo: '', observaciones: '', servicio: '', id_empleado: '' });
+            setFormData({
+                id_cliente: '',
+                fecha: new Date().toISOString().split('T')[0],
+                id_motocicleta: '',
+                observaciones: '',
+                servicio: '',
+                id_empleado: ''
+            });
             setProductos([]);
             fetchOrders();
-        } catch (err: any) {
-            console.error('Error al crear:', err);
-            alert('Error al registrar el servicio.');
+        } catch (err) {
+            console.error('Error al guardar:', err);
+            alert('Error al registrar la orden.');
         }
     };
 
@@ -301,15 +359,23 @@ export default function ServiceList() {
                             <div style={{ ...styles.grid2Cols, marginTop: '15px' }}>
                                 <div>
                                     <label style={styles.labelField}>Vehículo *</label>
-                                    <input
-                                        type="text"
-                                        name="vehiculo"
-                                        placeholder="Escribir vehículo..."
-                                        value={formData.vehiculo}
+                                    <select
+                                        name="id_motocicleta"
+                                        value={formData.id_motocicleta}
                                         onChange={handleInputChange}
                                         style={styles.input}
+                                        disabled={!formData.id_cliente}
                                         required
-                                    />
+                                    >
+                                        <option value="">
+                                            {!formData.id_cliente ? 'Primero selecciona un cliente...' : 'Seleccionar vehículo...'}
+                                        </option>
+                                        {motos.map(m => (
+                                            <option key={m.id_motocicleta} value={m.id_motocicleta}>
+                                                {m.modelo} · {m.placa} ({m.anio}, {m.color})
+                                            </option>
+                                        ))}
+                                    </select>
                                 </div>
                                 <div>
                                     <label style={styles.labelField}>Empleado Asignado *</label>
@@ -321,11 +387,14 @@ export default function ServiceList() {
                                         required
                                     >
                                         <option value="">Seleccionar empleado...</option>
-                                        {empleados.map(emp => (
-                                            <option key={emp.id_empleado || emp.id} value={emp.id_empleado || emp.id}>
-                                                {emp.nombre || emp.nombres}
-                                            </option>
-                                        ))}
+                                        {empleados.map(emp => {
+                                            const libre = [1, 3].includes(Number(emp.id_disponibilidad_empleado));
+                                            return (
+                                                <option key={emp.id_empleado} value={emp.id_empleado} disabled={!libre}>
+                                                    {emp.nombre} — {emp.especialidad} ({libre ? 'Disponible' : 'No disponible'})
+                                                </option>
+                                            );
+                                        })}
                                     </select>
                                 </div>
                             </div>
@@ -362,6 +431,24 @@ export default function ServiceList() {
                         <div style={styles.card}>
                             <div style={styles.cardHeaderFlex}>
                                 <h3 style={styles.cardTitleNoMargin}>📦 Productos Utilizados</h3>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
+                                <select value={prodSel} onChange={(e) => setProdSel(e.target.value)} style={{ ...styles.input, flex: 3 }}>
+                                    <option value="">Seleccionar producto...</option>
+                                    {referencias.map(r => (
+                                        <option key={r.id} value={r.id} disabled={Number(r.stock) <= 0}>
+                                            {r.descripcion} (stock: {r.stock})
+                                        </option>
+                                    ))}
+                                </select>
+                                <input
+                                    type="number"
+                                    min={1}
+                                    value={cantidadSel}
+                                    onChange={(e) => setCantidadSel(Number(e.target.value))}
+                                    style={{ ...styles.input, flex: 1 }}
+                                />
                                 <button type="button" onClick={handleAddProduct} style={styles.addProductBtn}>
                                     + Agregar
                                 </button>
@@ -372,19 +459,32 @@ export default function ServiceList() {
                                 <span style={{ flex: 1, textAlign: 'center' }}>Cantidad</span>
                                 <span style={{ flex: 1, textAlign: 'right' }}>Precio</span>
                                 <span style={{ flex: 1, textAlign: 'right' }}>Subtotal</span>
+                                <span style={{ width: 30 }} />
                             </div>
 
                             {productos.length === 0 ? (
                                 <p style={styles.emptyText}>No hay productos agregados</p>
                             ) : (
-                                productos.map((p) => (
-                                    <div key={p.id} style={styles.tableBodyRow}>
-                                        <span style={{ flex: 2 }}>{p.nombre}</span>
-                                        <span style={{ flex: 1, textAlign: 'center' }}>{p.cantidad}</span>
-                                        <span style={{ flex: 1, textAlign: 'right' }}>${p.precio}</span>
-                                        <span style={{ flex: 1, textAlign: 'right' }}>${p.subtotal}</span>
+                                <>
+                                    {productos.map((p) => (
+                                        <div key={p.id} style={styles.tableBodyRow}>
+                                            <span style={{ flex: 2 }}>{p.nombre}</span>
+                                            <span style={{ flex: 1, textAlign: 'center' }}>{p.cantidad}</span>
+                                            <span style={{ flex: 1, textAlign: 'right' }}>${p.precio}</span>
+                                            <span style={{ flex: 1, textAlign: 'right' }}>${p.subtotal}</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleRemoveProduct(p.id)}
+                                                style={{ ...styles.deleteBtn, width: 30 }}
+                                            >
+                                                ✕
+                                            </button>
+                                        </div>
+                                    ))}
+                                    <div style={{ textAlign: 'right', marginTop: '10px', fontWeight: 'bold' }}>
+                                        Total: ${productos.reduce((s, p) => s + p.subtotal, 0)}
                                     </div>
-                                ))
+                                </>
                             )}
                         </div>
 

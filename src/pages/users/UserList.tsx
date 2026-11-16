@@ -1,11 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import logoMonostyle from '../../assets/logo.png';
-import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = 'https://umvfiaquovixeeolamks.supabase.co';
-const supabaseKey = 'sb_publishable_iA1xLGhu6OgA4_q0cVURkw_id6LfSZ5'; // Asegúrate de colocar tu llave completa aquí
-const supabase = createClient(supabaseUrl, supabaseKey);
+import { supabase } from '../../api/supabaseCliente';
 
 interface User {
   id: number | string;
@@ -64,7 +61,7 @@ export const UserList = () => {
         id: `cli-${item.id_cliente}`,
         nombreCompleto: item.nombre || 'Sin nombre',
         telefono: item.telefono || 'N/A',
-        correo: item.credenciales || item.correo || 'N/A',
+        correo: item.correo || 'N/A',
         rol: 'Cliente',
         estado: 'Activo'
       }));
@@ -73,7 +70,7 @@ export const UserList = () => {
         id: `emp-${item.id_empleado || item.id}`,
         nombreCompleto: item.nombre || item.nombre_completo || 'Sin nombre',
         telefono: item.telefono || 'N/A',
-        correo: item.credenciales || item.correo || 'N/A',
+        correo: item.correo || 'N/A',
         rol: 'Empleado',
         estado: 'Activo'
       }));
