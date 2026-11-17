@@ -1,119 +1,56 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import logoMonostyle from '../../assets/logo.png';
-import { orderService } from '../../api/orderService';
 import { supabase } from '../../api/supabaseCliente';
 
-export default function ServiceList() {
-    const [adminName, setAdminName] = useState('Jair Candil');
-    const [clientes, setClientes] = useState<any[]>([]);
-    const [empleados, setEmpleados] = useState<any[]>([]);
-    const [loadingData, setLoadingData] = useState(true);
-
-    // Estado para alternar entre la tabla y el formulario completo
-    const [isCreating, setIsCreating] = useState(false);
-
-    // Estados de la tabla y búsqueda
-    const [orders, setOrders] = useState<any[]>([]);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [error, setError] = useState('');
-
-    // Datos del formulario de nueva orden
-    const [formData, setFormData] = useState({
-        id_cliente: '',
-        fecha: new Date().toISOString().split('T')[0],
-        vehiculo: '',
-        observaciones: '',
-        servicio: '',
-        id_empleado: ''
-    });
-
-    const [productos, setProductos] = useState<any[]>([]);
+export default function ServiceOrderForm() {
     const navigate = useNavigate();
+    const [clientes, setClientes] = useState<any[]>([]);
+    const [servicios, setServicios] = useState<any[]>([]);
+
+    // Estados del formulario
+    const [clienteSeleccionado, setClienteSeleccionado] = useState('');
+    const [vehiculo, setVehiculo] = useState('');
+    const [servicioSeleccionado, setServicioSeleccionado] = useState('');
+    const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0]);
+    const [observaciones, setObservaciones] = useState('');
+    const [productos, setProductos] = useState<any[]>([]); // Para productos utilizados
+    const [loading, setLoading] = useState(false);
+
+    // Datos del usuario logueado
+    const [userName, setUserName] = useState('Usuario');
+    const [userRole, setUserRole] = useState('Empleado');
 
     useEffect(() => {
-        fetchOrders();
-        loadRelatedData();
+            // Solo leemos el usuario actual de forma segura
+            const storedUser = localStorage.getItem('user');
+            const token = localStorage.getItem('token');
 
-        const storedUser = localStorage.getItem('user');
-        if (storedUser) {
+            if (!storedUser || !token) {
+                // Si por alguna razón no está, redirigimos al login
+                navigate('/login', { replace: true });
+                return;
+            }
+
             try {
                 const userData = JSON.parse(storedUser);
-                setAdminName(userData.username || userData.nombre || 'Jair Candil');
+                setUserName(userData.nombre || 'Usuario');
+                setUserRole(userData.rol || 'Empleado');
             } catch (e) {
-                console.error(e);
+                console.error("Error al parsear el usuario:", e);
             }
-        }
-    }, []);
 
-    const fetchOrders = async () => {
+            fetchDropdownData();
+        }, [navigate]);
+
+    const fetchDropdownData = async () => {
         try {
-            const data = await orderService.getAll();
-            setOrders(data || []);
+            const { data: cliData } = await supabase.from('cliente').select('*');
+            const { data: servData } = await supabase.from('servicios').select('*');
+            setClientes(cliData || []);
+            setServicios(servData || []);
         } catch (err) {
-            console.error('Error al cargar órdenes:', err);
-            setError('No se pudieron cargar los servicios desde Supabase.');
-        }
-    };
-
-    const loadRelatedData = async () => {
-        try {
-            setLoadingData(true);
-            const { data: clientesData } = await supabase.from('cliente').select('*');
-            if (clientesData) setClientes(clientesData);
-
-            const { data: empleadosData } = await supabase.from('empleado').select('*');
-            if (empleadosData) setEmpleados(empleadosData);
-        } catch (err) {
-            console.error('Error cargando relaciones:', err);
-        } finally {
-            setLoadingData(false);
-        }
-    };
-
-    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-        const { name, value } = e.target;
-        setFormData({ ...formData, [name]: value });
-    };
-
-    const handleAddProduct = () => {
-        const nuevoProd = { id: Date.now(), nombre: 'Aceite Motor 4T', cantidad: 1, precio: 35000, subtotal: 35000 };
-        setProductos([...productos, nuevoProd]);
-    };
-
-    const handleSaveService = async (e: React.FormEvent) => {
-        e.preventDefault();
-
-        if (!formData.id_cliente || !formData.id_empleado) {
-            alert('Por favor selecciona un cliente y un empleado válido.');
-            return;
-        }
-
-        try {
-            await orderService.create({
-                descripcion: formData.observaciones || formData.servicio,
-                id_cliente: Number(formData.id_cliente),
-                id_empleado: Number(formData.id_empleado),
-                id_estado_orden: 1
-            });
-
-            alert('¡Orden de servicio registrada con éxito!');
-            setIsCreating(false);
-            fetchOrders();
-        } catch (err) {
-            console.error('Error al guardar:', err);
-            alert('Error al registrar la orden en Supabase.');
-        }
-    };
-
-    const handleDelete = async (id: number) => {
-        if (window.confirm('¿Estás seguro de eliminar este servicio?')) {
-            try {
-                await orderService.delete(id);
-                fetchOrders();
-            } catch (err) {
-                console.error('Error al eliminar:', err);
-            }
+            console.error('Error al cargar datos de Supabase:', err);
         }
     };
 
@@ -123,13 +60,40 @@ export default function ServiceList() {
         navigate('/login');
     };
 
-    const filteredOrders = orders.filter(ord =>
-        ord.descripcion?.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        try {
+            setLoading(true);
+            // Lógica para guardar la orden en Supabase (ajusta la tabla según tu esquema de órdenes)
+            const { error } = await supabase.from('ordenes_servicio').insert([
+                {
+                    cliente_id: clienteSeleccionado,
+                    vehiculo: vehiculo,
+                    servicio_id: servicioSeleccionado,
+                    fecha: fecha,
+                    observaciones: observaciones,
+                    estado: 'Activo'
+                }
+            ]);
+
+            if (error) throw error;
+
+            alert('¡Orden de servicio registrada con éxito!');
+            navigate('/orders');
+        } catch (err) {
+            console.error('Error al guardar orden:', err);
+            alert('Error al registrar la orden de servicio.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const isAdmin = userRole === 'Administrador';
+    const homeRoute = isAdmin ? '/admin/dashboard' : '/employee/dashboard';
 
     return (
         <div style={styles.container}>
-            {/* Barra lateral */}
+            {/* Barra lateral con rol dinámico */}
             <aside style={styles.sidebar}>
                 <div>
                     <div style={styles.brandContainer}>
@@ -137,14 +101,13 @@ export default function ServiceList() {
                     </div>
 
                     <nav style={styles.nav}>
-                        <Link to="/admin/dashboard" style={styles.navLink}>Inicio</Link>
+                        <Link to={homeRoute} style={styles.navLink}>Inicio</Link>
                         <Link to="/users" style={styles.navLink}>Usuario</Link>
-                        <Link to="/services" style={{ ...styles.navLink, ...styles.activeLink }}>Servicios</Link>
+                        <Link to="/services" style={styles.navLink}>Servicios</Link>
                         <Link to="/appointments" style={styles.navLink}>Citas</Link>
                         <Link to="/inventory" style={styles.navLink}>Inventario</Link>
-                        <Link to="/reports" style={styles.navLink}>Reportes</Link>
-                        <Link to="/register" style={styles.navLink}>Registro</Link>
-                        <Link to="/orders" style={styles.navLink}>Órdenes</Link>
+                        {isAdmin && <Link to="/reports" style={styles.navLink}>Reportes</Link>}
+                        <Link to="/orders" style={{ ...styles.navLink, ...styles.activeLink }}>Órdenes</Link>
                     </nav>
                 </div>
 
@@ -159,225 +122,137 @@ export default function ServiceList() {
             <main style={styles.mainContent}>
                 <header style={styles.header}>
                     <div>
-                        <h2 style={styles.pageTitle}>
-                            {isCreating ? 'Nueva Orden de Servicio' : 'Gestión de Servicios'}
-                        </h2>
-                        <p style={styles.pageSubtitle}>
-                            {isCreating ? 'Registra una nueva orden de servicio al cliente' : 'Administra los servicios del taller conectados a Supabase'}
-                        </p>
+                        <h2 style={styles.pageTitle}>Nueva Orden de Servicio</h2>
+                        <p style={styles.pageSubtitle}>Registra una nueva orden de servicio al cliente</p>
                     </div>
                     <div style={styles.userInfo}>
                         <div style={styles.userAvatar}>👤</div>
                         <div>
-                            <p style={styles.userName}>{adminName}</p>
-                            <span style={styles.userRole}>Administrador</span>
+                            <p style={styles.userName}>{userName}</p>
+                            <span style={styles.userRole}>{userRole}</span>
                         </div>
                     </div>
                 </header>
 
-                {!isCreating ? (
-                    /* VISTA DE TABLA / LISTA DE SERVICIOS */
-                    <>
-                        <div style={styles.toolbar}>
-                            <button onClick={() => setIsCreating(true)} style={styles.addButton}>
-                                + Agregar Servicio
-                            </button>
+                <form onSubmit={handleSubmit} style={styles.formCard}>
+                    {/* Sección Información del Servicio */}
+                    <div style={styles.sectionHeader}>
+                        <span style={styles.sectionIcon}>🛠️</span>
+                        <h3 style={styles.sectionTitle}>Información del Servicio</h3>
+                    </div>
+
+                    <div style={styles.grid2Cols}>
+                        <div style={styles.inputGroup}>
+                            <label style={styles.label}>Cliente *</label>
+                            <select
+                                value={clienteSeleccionado}
+                                onChange={(e) => setClienteSeleccionado(e.target.value)}
+                                required
+                                style={styles.input}
+                            >
+                                <option value="">Seleccionar cliente...</option>
+                                {clientes.map((cli) => (
+                                    <option key={cli.id_cliente || cli.id} value={cli.id_cliente || cli.id}>
+                                        {cli.nombre}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div style={styles.inputGroup}>
+                            <label style={styles.label}>Fecha *</label>
                             <input
-                                type="text"
-                                placeholder="Buscar servicio..."
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                style={styles.searchBox}
+                                type="date"
+                                value={fecha}
+                                onChange={(e) => setFecha(e.target.value)}
+                                required
+                                style={styles.input}
                             />
                         </div>
 
-                        {error && <div style={styles.errorAlert}>{error}</div>}
-
-                        <div style={styles.tableContainer}>
-                            <table style={styles.table}>
-                                <thead>
-                                    <tr style={styles.trHead}>
-                                        <th style={styles.th}>ID</th>
-                                        <th style={styles.th}>Descripción (Servicio)</th>
-                                        <th style={styles.th}>ID Cliente</th>
-                                        <th style={styles.th}>ID Empleado</th>
-                                        <th style={styles.th}>Estado</th>
-                                        <th style={styles.th}>Acciones</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {filteredOrders.length === 0 ? (
-                                        <tr>
-                                            <td colSpan={6} style={{ textAlign: 'center', padding: '20px', color: '#94a3b8' }}>
-                                                No se encontraron registros en la tabla orden.
-                                            </td>
-                                        </tr>
-                                    ) : (
-                                        filteredOrders.map((ord) => (
-                                            <tr key={ord.id_orden} style={styles.trBody}>
-                                                <td style={styles.td}>{ord.id_orden}</td>
-                                                <td style={styles.td}>{ord.descripcion}</td>
-                                                <td style={styles.td}>{ord.id_cliente}</td>
-                                                <td style={styles.td}>{ord.id_empleado}</td>
-                                                <td style={styles.td}>
-                                                    <span style={styles.activeBadge}>Activo</span>
-                                                </td>
-                                                <td style={styles.td}>
-                                                    <button onClick={() => handleDelete(ord.id_orden)} style={styles.deleteBtn} title="Eliminar">
-                                                        🗑️
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        ))
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
-                    </>
-                ) : (
-                    /* VISTA DEL FORMULARIO COMPLETO AL HACER CLIC EN + AGREGAR SERVICIO */
-                    <form onSubmit={handleSaveService}>
-                        <div style={styles.card}>
-                            <h3 style={styles.cardTitle}>⚙️ Información del Servicio</h3>
-
-                            <div style={styles.grid2Cols}>
-                                <div>
-                                    <label style={styles.label}>Cliente *</label>
-                                    <select
-                                        name="id_cliente"
-                                        value={formData.id_cliente}
-                                        onChange={handleInputChange}
-                                        style={styles.input}
-                                        required
-                                    >
-                                        <option value="">{loadingData ? 'Cargando clientes...' : 'Seleccionar cliente...'}</option>
-                                        {clientes.map(c => (
-                                            <option key={c.id_cliente || c.id} value={c.id_cliente || c.id}>
-                                                {c.nombre || c.nombres || `Cliente #${c.id_cliente || c.id}`}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label style={styles.label}>Fecha *</label>
-                                    <div style={styles.inputWithIcon}>
-                                        <input
-                                            type="date"
-                                            name="fecha"
-                                            value={formData.fecha}
-                                            onChange={handleInputChange}
-                                            style={styles.input}
-                                            required
-                                        />
-                                        <span style={styles.inputIcon}>📅</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div style={{ ...styles.grid2Cols, marginTop: '15px' }}>
-                                <div>
-                                    <label style={styles.label}>Vehículo *</label>
-                                    <input
-                                        type="text"
-                                        name="vehiculo"
-                                        placeholder="Seleccionar vehículo..."
-                                        value={formData.vehiculo}
-                                        onChange={handleInputChange}
-                                        style={styles.input}
-                                        required
-                                    />
-                                </div>
-                                <div>
-                                    <label style={styles.label}>Empleado Asignado *</label>
-                                    <select
-                                        name="id_empleado"
-                                        value={formData.id_empleado}
-                                        onChange={handleInputChange}
-                                        style={styles.input}
-                                        required
-                                    >
-                                        <option value="">{loadingData ? 'Cargando empleados...' : 'Seleccionar empleado...'}</option>
-                                        {empleados.map(emp => (
-                                            <option key={emp.id_empleado || emp.id} value={emp.id_empleado || emp.id}>
-                                                {emp.nombre || emp.nombres || `Empleado #${emp.id_empleado || emp.id}`}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
-                            </div>
-
-                            <div style={{ marginTop: '15px' }}>
-                                <label style={styles.label}>Servicio *</label>
-                                <select
-                                    name="servicio"
-                                    value={formData.servicio}
-                                    onChange={handleInputChange}
-                                    style={styles.input}
-                                    required
-                                >
-                                    <option value="">Seleccionar servicio...</option>
-                                    <option value="Cambio de aceite y filtros">Cambio de aceite y filtros</option>
-                                    <option value="Mantenimiento general">Mantenimiento general</option>
-                                    <option value="Revisión de frenos">Revisión de frenos</option>
-                                </select>
-                            </div>
-
-                            <div style={{ marginTop: '15px' }}>
-                                <label style={styles.label}>Observaciones</label>
-                                <textarea
-                                    name="observaciones"
-                                    placeholder="Descripción del servicio..."
-                                    value={formData.observaciones}
-                                    onChange={handleInputChange}
-                                    style={{ ...styles.input, height: '70px', resize: 'vertical' }}
-                                />
-                            </div>
+                        <div style={styles.inputGroup}>
+                            <label style={styles.label}>Vehículo *</label>
+                            <input
+                                type="text"
+                                placeholder="Ej. Yamaha FZ / Placa ABC-123"
+                                value={vehiculo}
+                                onChange={(e) => setVehiculo(e.target.value)}
+                                required
+                                style={styles.input}
+                            />
                         </div>
 
-                        {/* Tarjeta: Productos Utilizados */}
-                        <div style={styles.card}>
-                            <div style={styles.cardHeaderFlex}>
-                                <h3 style={styles.cardTitleNoMargin}>📦 Productos Utilizados</h3>
-                                <button type="button" onClick={handleAddProduct} style={styles.addProductBtn}>
-                                    + Agregar
-                                </button>
-                            </div>
-
-                            <div style={styles.tableHeaderRow}>
-                                <span style={{ flex: 2 }}>Producto</span>
-                                <span style={{ flex: 1, textAlign: 'center' }}>Cantidad</span>
-                                <span style={{ flex: 1, textAlign: 'right' }}>Precio</span>
-                                <span style={{ flex: 1, textAlign: 'right' }}>Subtotal</span>
-                            </div>
-
-                            {productos.length === 0 ? (
-                                <p style={styles.emptyText}>No hay productos agregados</p>
-                            ) : (
-                                productos.map((p) => (
-                                    <div key={p.id} style={styles.tableBodyRow}>
-                                        <span style={{ flex: 2 }}>{p.nombre}</span>
-                                        <span style={{ flex: 1, textAlign: 'center' }}>{p.cantidad}</span>
-                                        <span style={{ flex: 1, textAlign: 'right' }}>${p.precio}</span>
-                                        <span style={{ flex: 1, textAlign: 'right' }}>${p.subtotal}</span>
-                                    </div>
-                                ))
-                            )}
+                        <div style={styles.inputGroup}>
+                            <label style={styles.label}>Observaciones</label>
+                            <input
+                                type="text"
+                                placeholder="Descripción del servicio..."
+                                value={observaciones}
+                                onChange={(e) => setObservaciones(e.target.value)}
+                                style={styles.input}
+                            />
                         </div>
 
-                        {/* Botones Inferiores */}
-                        <div style={styles.footerActions}>
-                            <button type="submit" style={styles.saveBtn}>
-                                💾 Guardar Servicio
-                            </button>
-                            <button type="button" onClick={() => setIsCreating(false)} style={styles.cancelBtn}>
-                                ❌ Cancelar
-                            </button>
-                            <button type="button" onClick={() => alert('Generando cotización...')} style={styles.quoteBtn}>
-                                Generar cotización
-                            </button>
+                        <div style={{ ...styles.inputGroup, gridColumn: 'span 2' }}>
+                            <label style={styles.label}>Servicio *</label>
+                            <select
+                                value={servicioSeleccionado}
+                                onChange={(e) => setServicioSeleccionado(e.target.value)}
+                                required
+                                style={styles.input}
+                            >
+                                <option value="">Seleccionar servicio...</option>
+                                {servicios.map((serv) => (
+                                    <option key={serv.id_servicio || serv.id} value={serv.id_servicio || serv.id}>
+                                        {serv.nombre} - ${Number(serv.precio || 0).toLocaleString()}
+                                    </option>
+                                ))}
+                            </select>
                         </div>
-                    </form>
-                )}
+                    </div>
+
+                    {/* Sección Productos Utilizados */}
+                    <div style={{ ...styles.sectionHeader, marginTop: '30px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span style={styles.sectionIcon}>📦</span>
+                            <h3 style={styles.sectionTitle}>Productos Utilizados</h3>
+                        </div>
+                        <button type="button" style={styles.addProductBtn}>+ Agregar</button>
+                    </div>
+
+                    <div style={styles.productsTableContainer}>
+                        <table style={styles.table}>
+                            <thead>
+                                <tr style={styles.trHead}>
+                                    <th style={styles.th}>Producto</th>
+                                    <th style={styles.th}>Cantidad</th>
+                                    <th style={styles.th}>Precio</th>
+                                    <th style={styles.th}>Subtotal</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td colSpan={4} style={{ textAlign: 'center', padding: '20px', color: '#64748b', fontSize: '13px' }}>
+                                        No hay productos agregados
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {/* Botones de Acción */}
+                    <div style={styles.footerButtons}>
+                        <button type="submit" disabled={loading} style={styles.saveBtn}>
+                            💾 Guardar Servicio
+                        </button>
+                        <button type="button" onClick={() => navigate('/orders')} style={styles.cancelBtn}>
+                            ✕ Cancelar
+                        </button>
+                        <button type="button" style={styles.quoteBtn}>
+                            Generar cotización
+                        </button>
+                    </div>
+                </form>
             </main>
         </div>
     );
@@ -393,42 +268,30 @@ const styles: { [key: string]: React.CSSProperties } = {
     navLink: { color: '#94a3b8', textDecoration: 'none', padding: '10px 15px', borderRadius: '8px', transition: '0.2s', fontSize: '14px' },
     activeLink: { backgroundColor: '#1d4ed8', color: '#fff', fontWeight: '500', boxShadow: '0 0 10px rgba(29, 78, 216, 0.4)' },
     logoutContainer: { borderTop: '1px solid #1e293b', paddingTop: '15px' },
-    logoutButton: { background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '14px', display: 'flex', alignContent: 'center', gap: '8px', width: '100%', padding: '8px' },
+    logoutButton: { background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '8px' },
     mainContent: { flex: 1, padding: '30px', overflowY: 'auto' },
     header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', borderBottom: '1px solid #1e293b', paddingBottom: '20px' },
-    pageTitle: { fontSize: '22px', fontWeight: 'bold' },
-    pageSubtitle: { color: '#64748b', fontSize: '13px' },
+    pageTitle: { fontSize: '22px', fontWeight: 'bold', margin: 0 },
+    pageSubtitle: { color: '#64748b', fontSize: '13px', margin: 0 },
     userInfo: { display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: '#0d1322', padding: '8px 15px', borderRadius: '12px', border: '1px solid #1e293b' },
     userAvatar: { fontSize: '20px' },
-    userName: { fontSize: '14px', fontWeight: 'bold' },
-    userRole: { fontSize: '11px', color: '#3b82f6' },
-    toolbar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' },
-    addButton: { backgroundColor: '#1d4ed8', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 0 10px rgba(29, 78, 216, 0.4)' },
-    searchBox: { backgroundColor: '#0d1322', border: '1px solid #1e293b', borderRadius: '8px', padding: '10px 15px', color: '#fff', width: '250px', outline: 'none' },
-    tableContainer: { backgroundColor: '#0d1322', border: '1px solid #1e293b', borderRadius: '12px', overflow: 'hidden' },
-    table: { width: '100%', borderCollapse: 'collapse', textAlign: 'left' },
-    trHead: { borderBottom: '1px solid #1e293b', color: '#94a3b8', fontSize: '13px' },
-    th: { padding: '15px' },
-    trBody: { borderBottom: '1px solid #1e293b', fontSize: '14px' },
-    td: { padding: '15px' },
-    activeBadge: { backgroundColor: 'rgba(34, 197, 94, 0.2)', color: '#22c55e', padding: '4px 10px', borderRadius: '20px', fontSize: '12px', border: '1px solid #22c55e' },
-    deleteBtn: { backgroundColor: 'transparent', border: 'none', cursor: 'pointer', fontSize: '16px' },
-    errorAlert: { backgroundColor: 'rgba(239, 68, 68, 0.2)', border: '1px solid #ef4444', color: '#ef4444', padding: '10px', borderRadius: '8px', marginBottom: '20px', fontSize: '13px' },
-    card: { backgroundColor: '#0d1322', border: '1px solid #1e293b', borderRadius: '12px', padding: '20px', marginBottom: '20px', boxShadow: '0 4px 20px rgba(0,0,0,0.5)' },
-    cardTitle: { fontSize: '16px', fontWeight: 'bold', marginBottom: '15px', color: '#3b82f6' },
-    cardTitleNoMargin: { fontSize: '16px', fontWeight: 'bold', color: '#3b82f6', margin: 0 },
-    cardHeaderFlex: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' },
-    grid2Cols: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' },
-    label: { fontSize: '12px', color: '#94a3b8', display: 'block', marginBottom: '6px' },
-    input: { width: '100%', padding: '10px 14px', backgroundColor: '#050811', border: '1px solid #1e293b', borderRadius: '8px', color: '#fff', outline: 'none', boxSizing: 'border-box', fontSize: '14px' },
-    inputWithIcon: { position: 'relative' },
-    inputIcon: { position: 'absolute', right: '12px', top: '10px', fontSize: '14px', cursor: 'pointer' },
-    addProductBtn: { backgroundColor: '#1d4ed8', color: '#fff', border: 'none', padding: '6px 14px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 0 10px rgba(29, 78, 216, 0.3)' },
-    tableHeaderRow: { display: 'flex', color: '#64748b', fontSize: '12px', borderBottom: '1px solid #1e293b', paddingBottom: '8px', marginBottom: '10px' },
-    tableBodyRow: { display: 'flex', fontSize: '14px', padding: '8px 0', borderBottom: '1px solid #1e293b' },
-    emptyText: { textAlign: 'center', color: '#64748b', fontSize: '13px', padding: '15px 0' },
-    footerActions: { display: 'flex', gap: '15px', marginTop: '20px' },
-    saveBtn: { backgroundColor: '#1d4ed8', color: '#fff', border: 'none', padding: '12px 24px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 0 15px rgba(29, 78, 216, 0.4)' },
-    cancelBtn: { backgroundColor: 'transparent', border: '1px solid #1e293b', color: '#94a3b8', padding: '12px 24px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' },
-    quoteBtn: { backgroundColor: 'transparent', border: '1px solid #3b82f6', color: '#3b82f6', padding: '12px 24px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }
+    userName: { fontSize: '14px', fontWeight: 'bold', margin: 0 },
+    userRole: { fontSize: '11px', color: '#3b82f6', margin: 0 },
+    formCard: { backgroundColor: '#0d1322', border: '1px solid #1e293b', borderRadius: '12px', padding: '30px', boxShadow: '0 4px 20px rgba(0,0,0,0.5)' },
+    sectionHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' },
+    sectionIcon: { fontSize: '16px' },
+    sectionTitle: { fontSize: '16px', fontWeight: 'bold', margin: 0, color: '#38bdf8' },
+    grid2Cols: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' },
+    inputGroup: { display: 'flex', flexDirection: 'column', gap: '6px' },
+    label: { fontSize: '13px', color: '#cbd5e1', fontWeight: '500' },
+    input: { backgroundColor: '#050811', border: '1px solid #1e293b', borderRadius: '8px', padding: '11px 14px', color: '#fff', fontSize: '13px', outline: 'none' },
+    addProductBtn: { backgroundColor: '#1d4ed8', color: '#fff', border: 'none', padding: '6px 14px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 0 10px rgba(29, 78, 216, 0.4)' },
+    productsTableContainer: { backgroundColor: '#050811', border: '1px solid #1e293b', borderRadius: '8px', overflow: 'hidden', marginBottom: '25px' },
+    table: { width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' },
+    trHead: { borderBottom: '1px solid #1e293b', color: '#94a3b8' },
+    th: { padding: '12px 15px', fontWeight: '600' },
+    footerButtons: { display: 'flex', gap: '15px', justifyContent: 'flex-start', borderTop: '1px solid #1e293b', paddingTop: '20px' },
+    saveBtn: { backgroundColor: '#1d4ed8', color: '#fff', border: 'none', padding: '11px 20px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px', boxShadow: '0 0 10px rgba(29, 78, 216, 0.4)' },
+    cancelBtn: { backgroundColor: '#050811', color: '#ef4444', border: '1px solid #ef4444', padding: '11px 20px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' },
+    quoteBtn: { backgroundColor: '#050811', color: '#38bdf8', border: '1px solid #38bdf8', padding: '11px 20px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }
 };

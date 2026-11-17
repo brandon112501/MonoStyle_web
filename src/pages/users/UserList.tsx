@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import logoMonostyle from '../../assets/logo.png';
-
 import { supabase } from '../../api/supabaseCliente';
 
 interface User {
@@ -17,7 +16,8 @@ export const UserList = () => {
   const navigate = useNavigate();
   const [filtro, setFiltro] = useState<'Todos' | 'Clientes' | 'Empleados'>('Todos');
   const [busqueda, setBusqueda] = useState('');
-  const [adminName, setAdminName] = useState('SuperAdmin');
+  const [userName, setUserName] = useState('Usuario');
+  const [userRole, setUserRole] = useState('Empleado');
   const [usuarios, setUsuarios] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -26,7 +26,8 @@ export const UserList = () => {
     if (storedUser) {
       try {
         const userData = JSON.parse(storedUser);
-        setAdminName(userData.username || userData.nombre || 'SuperAdmin');
+        setUserName(userData.nombre || 'Usuario');
+        setUserRole(userData.rol || 'Empleado');
       } catch (e) {
         console.error("Error al obtener usuario:", e);
       }
@@ -39,23 +40,8 @@ export const UserList = () => {
     try {
       setLoading(true);
 
-      console.log("Iniciando consulta a Supabase...");
-
-      // Consultar clientes
-      const { data: clientesData, error: errClientes } = await supabase.from('cliente').select('*');
-      if (errClientes) {
-        console.error('Error detallado al cargar clientes:', errClientes);
-      } else {
-        console.log('Clientes obtenidos:', clientesData);
-      }
-
-      // Consultar empleados
-      const { data: empleadosData, error: errEmpleados } = await supabase.from('empleado').select('*');
-      if (errEmpleados) {
-        console.error('Error detallado al cargar empleados:', errEmpleados);
-      } else {
-        console.log('Empleados obtenidos:', empleadosData);
-      }
+      const { data: clientesData } = await supabase.from('cliente').select('*');
+      const { data: empleadosData } = await supabase.from('empleado').select('*');
 
       const mappedClientes: User[] = (clientesData || []).map((item: any) => ({
         id: `cli-${item.id_cliente}`,
@@ -75,10 +61,7 @@ export const UserList = () => {
         estado: 'Activo'
       }));
 
-      const totalUsuarios = [...mappedClientes, ...mappedEmpleados];
-      console.log("Usuarios totales unificados:", totalUsuarios);
-      setUsuarios(totalUsuarios);
-
+      setUsuarios([...mappedClientes, ...mappedEmpleados]);
     } catch (err) {
       console.error('Excepción general en Supabase:', err);
     } finally {
@@ -91,6 +74,10 @@ export const UserList = () => {
     localStorage.removeItem('user');
     navigate('/login');
   };
+
+  // Rutas dinámicas según el rol del usuario logueado
+  const isAdmin = userRole === 'Administrador';
+  const homeRoute = isAdmin ? '/admin/dashboard' : '/employee/dashboard';
 
   const usuariosFiltrados = usuarios.filter(user => {
     const cumpleFiltro =
@@ -113,12 +100,12 @@ export const UserList = () => {
           </div>
 
           <nav style={styles.nav}>
-            <Link to="/admin/dashboard" style={styles.navLink}>Inicio</Link>
+            <Link to={homeRoute} style={styles.navLink}>Inicio</Link>
             <Link to="/users" style={{ ...styles.navLink, ...styles.activeLink }}>Usuario</Link>
             <Link to="/services" style={styles.navLink}>Servicios</Link>
             <Link to="/appointments" style={styles.navLink}>Citas</Link>
             <Link to="/inventory" style={styles.navLink}>Inventario</Link>
-            <Link to="/reports" style={styles.navLink}>Reportes</Link>
+            {isAdmin && <Link to="/reports" style={styles.navLink}>Reportes</Link>}
             <Link to="/orders" style={styles.navLink}>Órdenes</Link>
           </nav>
         </div>
@@ -139,8 +126,8 @@ export const UserList = () => {
           <div style={styles.userInfo}>
             <div style={styles.userAvatar}>👤</div>
             <div>
-              <p style={styles.userName}>{adminName}</p>
-              <span style={styles.userRole}>Administrador</span>
+              <p style={styles.userName}>{userName}</p>
+              <span style={styles.userRole}>{userRole}</span>
             </div>
           </div>
         </header>
@@ -163,7 +150,6 @@ export const UserList = () => {
           </div>
 
           <div style={styles.actionToolbar}>
-            {/* BOTÓN CONECTADO A LA RUTA DE REGISTRO */}
             <button
               onClick={() => navigate('/register')}
               style={styles.newButton}
@@ -206,7 +192,7 @@ export const UserList = () => {
               ) : usuariosFiltrados.length === 0 ? (
                 <tr>
                   <td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
-                    No se encontraron registros. (Revisa la consola F12 del navegador)
+                    No se encontraron registros.
                   </td>
                 </tr>
               ) : (
@@ -262,7 +248,7 @@ const styles: { [key: string]: React.CSSProperties } = {
   navLink: { color: '#94a3b8', textDecoration: 'none', padding: '10px 15px', borderRadius: '8px', transition: '0.2s', fontSize: '14px' },
   activeLink: { backgroundColor: '#1d4ed8', color: '#fff', fontWeight: '500', boxShadow: '0 0 10px rgba(29, 78, 216, 0.4)' },
   logoutContainer: { borderTop: '1px solid #1e293b', paddingTop: '15px' },
-  logoutButton: { background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '14px', display: 'flex', alignContent: 'center', gap: '8px', width: '100%', padding: '8px' },
+  logoutButton: { background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '8px' },
   mainContent: { flex: 1, padding: '30px', overflowY: 'auto' },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', borderBottom: '1px solid #1e293b', paddingBottom: '20px' },
   pageTitle: { fontSize: '22px', fontWeight: 'bold' },
