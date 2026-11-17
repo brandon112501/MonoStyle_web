@@ -1,42 +1,69 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+
+// Importación de Páginas y Módulos
 import Login from '../pages/auth/Login';
-import Register from '../pages/Register';
 import AdminDashboard from '../pages/admin/AdminDashboard';
 import EmployeeDashboard from '../pages/employee/EmployeeDashboard';
-import { UserList } from '../pages/users/UserList'; // Ruta corregida y limpia
-import ServiceList from '../pages/services/ServiceList';
-import AppointmentList from '../pages/appointments/AppointmentList';
+
+// Inventario
 import InventoryList from '../pages/inventory/InventoryList';
-import Reports from '../pages/reports/Reports';
+import ProductForm from '../pages/inventory/ProductForm';
+
+// Citas
+import AppointmentList from '../pages/appointments/AppointmentList';
+import AppointmentForm from '../pages/appointments/AppointmentForm';
+
+// Órdenes
+import PurchaseOrderList from '../pages/orders/PurchaseOrderList';
+import PurchaseOrderForm from '../pages/orders/PurchaseOrderForm';
 import ServiceOrderForm from '../pages/orders/ServiceOrderForm';
+
+// Servicios y Reportes y Usuarios
+import ServiceList from '../pages/services/ServiceList';
+import UserList from '../pages/users/UserList';
+import UserForm from '../pages/users/UserForm';
+import Reports from '../pages/reports/Reports';
+
+// Componente para proteger rutas privadas
+const PrivateRoute = ({ children }: { children: JSX.Element }) => {
+    const token = localStorage.getItem('token');
+    // Si no hay token, redirige al login
+    return token ? children : <Navigate to="/login" replace />;
+};
 
 export default function AppRouter() {
     return (
         <BrowserRouter>
             <Routes>
-                {/* Redirigir la raíz directamente al Login */}
+                {/* Ruta pública de Autenticación */}
+                <Route path="/login" element={<Login />} />
                 <Route path="/" element={<Navigate to="/login" replace />} />
 
-                {/* Ruta de Login */}
-                <Route path="/login" element={<Login />} />
+                {/* Dashboards */}
+                <Route path="/admin/dashboard" element={<PrivateRoute><AdminDashboard /></PrivateRoute>} />
+                <Route path="/employee/dashboard" element={<PrivateRoute><EmployeeDashboard /></PrivateRoute>} />
 
-                {/* Panel de Administración */}
-                <Route path="/admin/dashboard" element={<AdminDashboard />} />
+                {/* Módulo de Inventario */}
+                <Route path="/inventory" element={<PrivateRoute><InventoryList /></PrivateRoute>} />
+                <Route path="/inventory/new" element={<PrivateRoute><ProductForm /></PrivateRoute>} />
 
-                {/* Módulos y Gestión del Sistema */}
-                <Route path="/users" element={<UserList />} />
-                <Route path="/services" element={<ServiceList />} />
-                <Route path="/appointments" element={<AppointmentList />} />
-                <Route path="/inventory" element={<InventoryList />} />
-                <Route path="/reports" element={<Reports />} />
-                <Route path="/orders" element={<ServiceOrderForm />} />
-                <Route path="/register" element={<Register />} />
+                {/* Módulo de Citas */}
+                <Route path="/appointments" element={<PrivateRoute><AppointmentList /></PrivateRoute>} />
+                <Route path="/appointments/new" element={<PrivateRoute><AppointmentForm /></PrivateRoute>} />
 
-                {/* Panel de Empleado */}
-                <Route path="/employee/dashboard" element={<EmployeeDashboard />} />
+                {/* Módulo de Órdenes */}
+                <Route path="/orders" element={<PrivateRoute><PurchaseOrderList /></PrivateRoute>} />
+                <Route path="/orders/new" element={<PrivateRoute><PurchaseOrderForm /></PrivateRoute>} />
+                <Route path="/orders/service" element={<PrivateRoute><ServiceOrderForm /></PrivateRoute>} />
 
-                {/* Ruta por defecto para cualquier otra URL no encontrada */}
+                {/* Módulos Adicionales */}
+                <Route path="/services" element={<PrivateRoute><ServiceList /></PrivateRoute>} />
+                <Route path="/users" element={<PrivateRoute><UserList /></PrivateRoute>} />
+                <Route path="/users/new" element={<PrivateRoute><UserForm /></PrivateRoute>} />
+                <Route path="/reports" element={<PrivateRoute><Reports /></PrivateRoute>} />
+
+                {/* Redirección por defecto si la ruta no existe */}
                 <Route path="*" element={<Navigate to="/login" replace />} />
             </Routes>
         </BrowserRouter>
