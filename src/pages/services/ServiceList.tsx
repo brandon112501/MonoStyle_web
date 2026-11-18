@@ -1,37 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import logoMonostyle from '../../assets/logo.png'; // Ajusta la ruta de tu logo si es necesario
+import logoMonostyle from '../../assets/logo.png';
 import { supabase } from '../../api/supabaseCliente';
-
-interface Service {
-  id_servicio?: number;
-  id?: number;
-  nombre: string;
-  descripcion: string;
-  precio: number;
-  estado?: string;
-}
 
 export default function ServiceList() {
     const navigate = useNavigate();
-    const [servicios, setServicios] = useState<Service[]>([]);
+    const [servicios, setServicios] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [busqueda, setBusqueda] = useState('');
 
-    const [userName, setUserName] = useState('Usuario');
+    const [userName, setUserName] = useState('Camilo');
     const [userRole, setUserRole] = useState('Empleado');
 
     useEffect(() => {
-        // Recuperar datos del usuario logueado para la barra lateral y cabecera
-        const storedUser = localStorage.getItem('user');
-        if (storedUser) {
-            try {
+        try {
+            const storedUser = localStorage.getItem('user');
+            if (storedUser) {
                 const userData = JSON.parse(storedUser);
-                setUserName(userData.nombre || 'Usuario');
+                setUserName(userData.nombre || 'Camilo');
                 setUserRole(userData.rol || 'Empleado');
-            } catch (e) {
-                console.error("Error al obtener usuario:", e);
             }
+        } catch (e) {
+            console.error(e);
         }
 
         fetchServicios();
@@ -40,15 +30,36 @@ export default function ServiceList() {
     const fetchServicios = async () => {
         try {
             setLoading(true);
-            const { data, error } = await supabase.from('servicios').select('*');
+            let listaFormateada: any[] = [];
 
-            if (error) {
-                console.error('Error al cargar servicios desde Supabase:', error);
+            // 1. Consultar la tabla 'orden'
+            const { data: ordenes, error: errOrden } = await supabase.from('orden').select('*');
+
+            if (!errOrden && ordenes && ordenes.length > 0) {
+                listaFormateada = ordenes.map((o: any) => ({
+                    id: o.id_orden || `ord-${o.id}`,
+                    nombre: o.descripcion || 'Servicio de Taller',
+                    descripcion: `Orden #${o.id_orden} - Cliente ID: ${o.id_cliente || 'N/A'}`,
+                    precio: o.total || o.precio || 0,
+                    estado: o.id_estado_orden === 1 ? 'En proceso' : 'Completado'
+                }));
             } else {
-                setServicios(data || []);
+                // 2. Si no hay en 'orden', intentamos con 'detalle_orden'
+                const { data: detalles } = await supabase.from('detalle_orden').select('*');
+                if (detalles) {
+                    listaFormateada = detalles.map((d: any) => ({
+                        id: d.id_detalle_orden || d.id,
+                        nombre: d.descripcion || d.servicio || 'Servicio detallado',
+                        descripcion: `Detalle de Orden #${d.id_orden || ''}`,
+                        precio: d.precio_unitario || d.subtotal || 0,
+                        estado: 'Activo'
+                    }));
+                }
             }
+
+            setServicios(listaFormateada);
         } catch (err) {
-            console.error('Excepción general:', err);
+            console.error('Excepción al cargar servicios de la tabla orden:', err);
         } finally {
             setLoading(false);
         }
@@ -60,18 +71,14 @@ export default function ServiceList() {
         navigate('/login');
     };
 
-    // Identificación dinámica del rol para las rutas del menú lateral
-    const isAdmin = userRole === 'Administrador';
-    const homeRoute = isAdmin ? '/admin/dashboard' : '/employee/dashboard';
-
     const serviciosFiltrados = servicios.filter(s =>
-        s.nombre?.toLowerCase().includes(busqueda.toLowerCase()) ||
-        s.descripcion?.toLowerCase().includes(busqueda.toLowerCase())
+        s.nombre.toLowerCase().includes(busqueda.toLowerCase()) ||
+        s.descripcion.toLowerCase().includes(busqueda.toLowerCase())
     );
 
     return (
         <div style={styles.container}>
-            {/* Barra lateral con rol dinámico */}
+            {/* Barra lateral */}
             <aside style={styles.sidebar}>
                 <div>
                     <div style={styles.brandContainer}>
@@ -79,12 +86,11 @@ export default function ServiceList() {
                     </div>
 
                     <nav style={styles.nav}>
-                        <Link to={homeRoute} style={styles.navLink}>Inicio</Link>
+                        <Link to="/employee/dashboard" style={styles.navLink}>Inicio</Link>
                         <Link to="/users" style={styles.navLink}>Usuario</Link>
                         <Link to="/services" style={{ ...styles.navLink, ...styles.activeLink }}>Servicios</Link>
                         <Link to="/appointments" style={styles.navLink}>Citas</Link>
                         <Link to="/inventory" style={styles.navLink}>Inventario</Link>
-                        {isAdmin && <Link to="/reports" style={styles.navLink}>Reportes</Link>}
                         <Link to="/orders" style={styles.navLink}>Órdenes</Link>
                     </nav>
                 </div>
@@ -101,7 +107,7 @@ export default function ServiceList() {
                 <header style={styles.header}>
                     <div>
                         <h2 style={styles.pageTitle}>Gestión de Servicios</h2>
-                        <p style={styles.pageSubtitle}>Administra los servicios del taller</p>
+                        <p style={styles.pageSubtitle}>Servicios y órdenes registradas en el taller</p>
                     </div>
                     <div style={styles.userInfo}>
                         <div style={styles.userAvatar}>👤</div>
@@ -113,23 +119,21 @@ export default function ServiceList() {
                 </header>
 
                 <div style={styles.toolbar}>
-                    <div style={{ width: '100%', display: 'flex', justifyContent: 'flex-end', gap: '15px', alignItems: 'center' }}>
-                        <button
-                            onClick={() => navigate('/services/new')} // Cambia o crea tu ruta de formulario de servicio si la tienes
-                            style={styles.newButton}
-                        >
-                            + Agregar Servicio
-                        </button>
-                        <div style={styles.searchContainer}>
-                            <span style={styles.searchIcon}>🔍</span>
-                            <input
-                                type="text"
-                                placeholder="Buscar servicio..."
-                                value={busqueda}
-                                onChange={(e) => setBusqueda(e.target.value)}
-                                style={styles.searchInput}
-                            />
-                        </div>
+                    <button
+                        onClick={() => navigate('/services/new')}
+                        style={styles.newButton}
+                    >
+                        + Agregar Servicio
+                    </button>
+                    <div style={styles.searchContainer}>
+                        <span style={styles.searchIcon}>🔍</span>
+                        <input
+                            type="text"
+                            placeholder="Buscar servicio..."
+                            value={busqueda}
+                            onChange={(e) => setBusqueda(e.target.value)}
+                            style={styles.searchInput}
+                        />
                     </div>
                 </div>
 
@@ -150,18 +154,28 @@ export default function ServiceList() {
                             {loading ? (
                                 <tr>
                                     <td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
-                                        Cargando servicios desde Supabase...
+                                        Cargando servicios de la base de datos...
                                     </td>
                                 </tr>
                             ) : serviciosFiltrados.length > 0 ? (
-                                serviciosFiltrados.map((serv, index) => (
-                                    <tr key={serv.id_servicio || serv.id || index} style={styles.trBody}>
-                                        <td style={styles.td}>{serv.id_servicio || serv.id || index + 1}</td>
-                                        <td style={styles.td}>{serv.nombre}</td>
-                                        <td style={styles.td}>{serv.descripcion}</td>
-                                        <td style={styles.td}>${Number(serv.precio || 0).toLocaleString()}</td>
+                                serviciosFiltrados.map((srv, idx) => (
+                                    <tr key={srv.id || idx} style={styles.trBody}>
+                                        <td style={styles.td}>{srv.id}</td>
+                                        <td style={styles.td}>{srv.nombre}</td>
+                                        <td style={styles.td}>{srv.descripcion}</td>
+                                        <td style={styles.td}>${Number(srv.precio).toLocaleString()}</td>
                                         <td style={styles.td}>
-                                            <span style={styles.badgeActive}>Activo</span>
+                                            <span style={{
+                                                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                                color: '#10b981',
+                                                border: '1px solid #10b981',
+                                                padding: '4px 12px',
+                                                borderRadius: '20px',
+                                                fontSize: '12px',
+                                                fontWeight: 'bold'
+                                            }}>
+                                                {srv.estado}
+                                            </span>
                                         </td>
                                         <td style={styles.td}>
                                             <button style={styles.actionBtn} title="Editar">✏️</button>
@@ -214,6 +228,5 @@ const styles: { [key: string]: React.CSSProperties } = {
     th: { padding: '15px 20px', fontWeight: '600' },
     trBody: { borderBottom: '1px solid #1e293b', transition: 'background 0.2s' },
     td: { padding: '15px 20px', color: '#cbd5e1' },
-    badgeActive: { backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: '1px solid #10b981', padding: '4px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold' },
     actionBtn: { background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '16px', marginRight: '8px', color: '#3b82f6' }
 };
