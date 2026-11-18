@@ -9,32 +9,43 @@ export interface LoginCredentials {
 export const authService = {
     login: async (credentials: LoginCredentials) => {
         try {
-            console.log("Intentando login para:", credentials.username);
+            console.log("Intentando login para usuario:", credentials.username);
+            const userQuery = credentials.username.toLowerCase().trim();
+            const passQuery = credentials.password.trim();
 
-            // Consultamos la tabla 'administrador'
+            // 1. Consultar tabla 'empleado'
+            const { data: empleadoData, error: empErr } = await supabase.from('empleado').select('*');
+
+            if (!empErr && empleadoData) {
+                const empleadoEncontrado = empleadoData.find((emp: any) => {
+                    const dbUser = (emp.nombre || emp.usuario || emp.correo || emp.username || '').toLowerCase().trim();
+                    const dbPass = String(emp.password || emp.contrasena || emp.clave || '').trim();
+
+                    return dbUser === userQuery && (dbPass === passQuery || dbPass === '' || !dbPass);
+                });
+
+                if (empleadoEncontrado) {
+                    console.log("¡Empleado autenticado con éxito!", empleadoEncontrado);
+                    const userSession = {
+                        nombre: empleadoEncontrado.nombre || empleadoEncontrado.usuario || 'Empleado',
+                        rol: 'Empleado',
+                        email: empleadoEncontrado.correo || credentials.username
+                    };
+                    localStorage.setItem('token', 'employee-token-secure');
+                    localStorage.setItem('user', JSON.stringify(userSession));
+                    return { success: true, rol: 'Empleado', user: userSession };
+                }
+            }
+
+            // 2. Consultar tabla 'administrador'
             const { data: adminData, error: adminErr } = await supabase.from('administrador').select('*');
-
-            console.log("Datos de la tabla 'administrador' en Supabase:", adminData);
 
             if (!adminErr && adminData) {
                 const adminEncontrado = adminData.find((adm: any) => {
-                    // Verificamos de forma flexible cualquier coincidencia en los campos comunes
-                    const camposValidos = [
-                        adm.nombre,
-                        adm.usuario,
-                        adm.correo,
-                        adm.username,
-                        adm.email
-                    ].map(c => c?.toLowerCase().trim());
+                    const dbUser = (adm.nombre || adm.usuario || adm.correo || adm.username || '').toLowerCase().trim();
+                    const dbPass = String(adm.password || adm.contrasena || adm.clave || '').trim();
 
-                    const matchUser = camposValidos.includes(credentials.username.toLowerCase().trim());
-
-                    const matchPass = (adm.password === credentials.password) ||
-                                      (adm.contrasena === credentials.password) ||
-                                      (adm.clave === credentials.password) ||
-                                      !adm.password; // Si no tiene contraseña registrada
-
-                    return matchUser && matchPass;
+                    return dbUser === userQuery && (dbPass === passQuery || dbPass === '' || !dbPass);
                 });
 
                 if (adminEncontrado) {
@@ -47,40 +58,6 @@ export const authService = {
                     localStorage.setItem('token', 'admin-token-secure');
                     localStorage.setItem('user', JSON.stringify(userSession));
                     return { success: true, rol: 'Administrador', user: userSession };
-                }
-            }
-
-            // Consultamos la tabla 'empleado'
-            const { data: empleadoData, error: empErr } = await supabase.from('empleado').select('*');
-
-            if (!empErr && empleadoData) {
-                const empleadoEncontrado = empleadoData.find((emp: any) => {
-                    const camposValidos = [
-                        emp.nombre,
-                        emp.usuario,
-                        emp.correo,
-                        emp.credenciales,
-                        emp.username
-                    ].map(c => c?.toLowerCase().trim());
-
-                    const matchUser = camposValidos.includes(credentials.username.toLowerCase().trim());
-                    const matchPass = (emp.password === credentials.password) ||
-                                      (emp.contrasena === credentials.password) ||
-                                      (emp.credenciales === credentials.password);
-
-                    return matchUser && matchPass;
-                });
-
-                if (empleadoEncontrado) {
-                    console.log("¡Empleado autenticado con éxito!", empleadoEncontrado);
-                    const userSession = {
-                        nombre: empleadoEncontrado.nombre || 'Empleado',
-                        rol: 'Empleado',
-                        email: empleadoEncontrado.correo || credentials.username
-                    };
-                    localStorage.setItem('token', 'employee-token-secure');
-                    localStorage.setItem('user', JSON.stringify(userSession));
-                    return { success: true, rol: 'Empleado', user: userSession };
                 }
             }
 

@@ -1,34 +1,25 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 
-// Importación de Páginas y Módulos
-import Login from '../pages/auth/Login';
+
 import AdminDashboard from '../pages/admin/AdminDashboard';
 import EmployeeDashboard from '../pages/employee/EmployeeDashboard';
-
-// Inventario
 import InventoryList from '../pages/inventory/InventoryList';
 import ProductForm from '../pages/inventory/ProductForm';
-
-// Citas
 import AppointmentList from '../pages/appointments/AppointmentList';
 import AppointmentForm from '../pages/appointments/AppointmentForm';
-
-// Órdenes
 import PurchaseOrderList from '../pages/orders/PurchaseOrderList';
 import PurchaseOrderForm from '../pages/orders/PurchaseOrderForm';
 import ServiceOrderForm from '../pages/orders/ServiceOrderForm';
-
-// Servicios y Reportes y Usuarios
 import ServiceList from '../pages/services/ServiceList';
 import UserList from '../pages/users/UserList';
 import UserForm from '../pages/users/UserForm';
 import Reports from '../pages/reports/Reports';
+import Login from '../pages/auth/Login';
 
 // Componente para proteger rutas privadas
 const PrivateRoute = ({ children }: { children: JSX.Element }) => {
     const token = localStorage.getItem('token');
-    // Si no hay token, redirige al login
     return token ? children : <Navigate to="/login" replace />;
 };
 
@@ -59,6 +50,7 @@ export default function AppRouter() {
 
                 {/* Módulos Adicionales */}
                 <Route path="/services" element={<PrivateRoute><ServiceList /></PrivateRoute>} />
+                <Route path="/services/new" element={<PrivateRoute><ServiceOrderForm /></PrivateRoute>} />
                 <Route path="/users" element={<PrivateRoute><UserList /></PrivateRoute>} />
                 <Route path="/users/new" element={<PrivateRoute><UserForm /></PrivateRoute>} />
                 <Route path="/reports" element={<PrivateRoute><Reports /></PrivateRoute>} />

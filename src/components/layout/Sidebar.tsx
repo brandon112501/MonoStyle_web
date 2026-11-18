@@ -5,20 +5,36 @@ export default function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
 
+  // Obtenemos el rol del usuario desde localStorage para mostrar u ocultar opciones si es necesario
+  const storedUser = localStorage.getItem('user');
+  let userRole = 'Empleado';
+  try {
+    if (storedUser) {
+      const parsed = JSON.parse(storedUser);
+      userRole = parsed.rol || 'Empleado';
+    }
+  } catch (e) {
+    console.error(e);
+  }
+
+  const isAdmin = userRole === 'Administrador';
+  const homePath = isAdmin ? '/admin/dashboard' : '/employee/dashboard';
 
   const menuItems = [
-    { name: 'Inicio', path: '/admin' },
-    { name: 'Usuarios', path: '/users' },
+    { name: 'Inicio', path: homePath },
+    { name: 'Usuario', path: '/users' },
     { name: 'Servicios', path: '/services' },
     { name: 'Citas', path: '/appointments' },
     { name: 'Inventario', path: '/inventory' },
     { name: 'Reportes', path: '/reports' },
+    // Agregamos el enlace de Registro aquí apuntando a tu ruta correcta /users/new
+    ...(isAdmin ? [{ name: 'Registro', path: '/users/new' }] : []),
     { name: 'Órdenes', path: '/orders' },
   ];
 
   const handleLogout = () => {
     localStorage.clear();
-    navigate('/');
+    navigate('/login');
   };
 
   return (
@@ -27,11 +43,10 @@ export default function Sidebar() {
         {/* Logo y Título */}
         <div className="flex flex-col items-center mb-8 pt-4">
           <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700 mb-2">
-            {/* Aquí puedes poner la imagen del simio o un icono */}
             <span className="text-xl font-bold">🐵</span>
           </div>
           <h1 className="text-lg font-extrabold tracking-wider">MONOSTYLE</h1>
-          <p className="text-xs text-slate-400 mt-1">Panel de Administrador</p>
+          <p className="text-xs text-slate-400 mt-1">Panel de {userRole}</p>
         </div>
 
         {/* Menú de navegación */}
