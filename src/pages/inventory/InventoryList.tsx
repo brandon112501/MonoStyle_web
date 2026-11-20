@@ -3,71 +3,138 @@ import { useNavigate, Link } from 'react-router-dom';
 import logoMonostyle from '../../assets/logo.png';
 import { supabase } from '../../api/supabaseCliente';
 
-interface InventoryItem {
-  id_producto?: number;
-  id: number;
-  producto: string;
-  categoria: string;
-  stock: number;
-  precio: number;
-  estado?: string;
+interface ProductoRow {
+    id: any;
+    columnaId: string;
+    columnaStock: string;
+    tieneEstadoEnBd: boolean;
+    producto: string;
+    categoria: string;
+    stock: number;
+    precio: number;
+    estado: string;
 }
 
 export default function InventoryList() {
     const navigate = useNavigate();
-    const [inventario, setInventario] = useState<InventoryItem[]>([]);
+    const [productos, setProductos] = useState<ProductoRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [busqueda, setBusqueda] = useState('');
+    const [editandoId, setEditandoId] = useState<any>(null);
+    const [stockTemporal, setStockTemporal] = useState<number>(0);
 
     const [userName, setUserName] = useState('Usuario');
     const [userRole, setUserRole] = useState('Empleado');
 
     useEffect(() => {
-        const storedUser = localStorage.getItem('user');
-        if (storedUser) {
-            try {
+        try {
+            const storedUser = localStorage.getItem('user');
+            if (storedUser) {
                 const userData = JSON.parse(storedUser);
                 setUserName(userData.nombre || 'Usuario');
                 setUserRole(userData.rol || 'Empleado');
-            } catch (e) {
-                console.error("Error al obtener usuario:", e);
             }
+        } catch (e) {
+            console.error(e);
         }
 
-        fetchInventario();
+        fetchProductos();
     }, []);
 
-    const fetchInventario = async () => {
+    const isAdmin = userRole === 'Administrador';
+    const homeRoute = isAdmin ? '/admin/dashboard' : '/employee/dashboard';
+
+    const calcularEstadoStock = (stockNum: number, estadoActual?: string) => {
+        if (stockNum <= 0) return 'Agotado';
+        if (stockNum <= 5) return 'Stock bajo';
+        return estadoActual && estadoActual !== 'Stock bajo' && estadoActual !== 'Agotado'
+            ? estadoActual
+            : 'Disponible';
+    };
+
+    const fetchProductos = async () => {
         try {
             setLoading(true);
-            // Consultamos la tabla 'referencia' que es la que contiene los productos en Supabase
             const { data, error } = await supabase.from('referencia').select('*');
+            if (error) throw error;
 
-            if (error) {
-                console.error('Error al cargar inventario desde Supabase:', error);
-            } else if (data) {
-                const mappedData: InventoryItem[] = data.map((item: any) => {
-                    const stockVal = item.stock ?? 0;
-                    let estadoStr = 'Disponible';
+            const mapeados: ProductoRow[] = (data || []).map((p: any) => {
+                const colId = 'id_referencia' in p ? 'id_referencia' : 'id';
+                const colStock = 'stock' in p ? 'stock' : 'cantidad';
+                const tieneEstado = 'estado' in p;
+                const stockVal = Number(p[colStock] ?? 0);
 
-                    if (stockVal === 0) estadoStr = 'Agotado';
-                    else if (stockVal <= 5) estadoStr = 'Stock bajo';
+                return {
+                    id: p[colId],
+                    columnaId: colId,
+                    columnaStock: colStock,
+                    tieneEstadoEnBd: tieneEstado,
+                    producto: p.nombre || p.producto || p.descripcion || 'Sin nombre',
+                    categoria: p.categoria || (p.id_categoria ? `Categoría ${p.id_categoria}` : 'General'),
+                    stock: stockVal,
+                    precio: Number(p.precio ?? 0),
+                    estado: tieneEstado && p.estado ? p.estado : calcularEstadoStock(stockVal)
+                };
+            });
 
-                    return {
-                        id: item.id,
-                        producto: item.descripcion || 'Sin nombre',
-                        categoria: item.id_categoria ? `Categoría ${item.id_categoria}` : 'General',
-                        stock: stockVal,
-                        precio: item.precio || 0,
-                        estado: estadoStr
-                    };
-                });
-                setInventario(mappedData);
-            }
+            setProductos(mapeados);
         } catch (err) {
-            console.error('Excepción al cargar inventario:', err);
+            console.error('Error al cargar inventario:', err);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const iniciarEdicionStock = (prod: ProductoRow) => {
+        setEditandoId(prod.id);
+        setStockTemporal(prod.stock);
+    };
+
+    const guardarStock = async (prod: ProductoRow) => {
+        const nuevoStock = Math.max(0, Number(stockTemporal));
+        const nuevoEstado = calcularEstadoStock(nuevoStock, prod.estado);
+
+        try {
+            const payload: Record<string, any> = {
+                [prod.columnaStock]: nuevoStock
+            };
+
+            if (prod.tieneEstadoEnBd) {
+                payload.estado = nuevoEstado;
+            }
+
+            const { error } = await supabase
+                .from('referencia')
+                .update(payload)
+                .eq(prod.columnaId, prod.id);
+
+            if (error) throw error;
+
+            setProductos((prev) =>
+                prev.map((item) =>
+                    item.id === prod.id
+                        ? { ...item, stock: nuevoStock, estado: nuevoEstado }
+                        : item
+                )
+            );
+            setEditandoId(null);
+        } catch (err) {
+            console.error('Error al actualizar stock:', err);
+        }
+    };
+
+    const handleDelete = async (prod: ProductoRow) => {
+        try {
+            const { error } = await supabase
+                .from('referencia')
+                .delete()
+                .eq(prod.columnaId, prod.id);
+
+            if (error) throw error;
+
+            setProductos((prev) => prev.filter((item) => item.id !== prod.id));
+        } catch (err) {
+            console.error('Error al eliminar producto:', err);
         }
     };
 
@@ -77,30 +144,21 @@ export default function InventoryList() {
         navigate('/login');
     };
 
-    const isAdmin = userRole === 'Administrador';
-    const homeRoute = isAdmin ? '/admin/dashboard' : '/employee/dashboard';
-
-    const inventarioFiltrado = inventario.filter(item =>
-        item.producto?.toLowerCase().includes(busqueda.toLowerCase()) ||
-        item.categoria?.toLowerCase().includes(busqueda.toLowerCase())
+    const productosFiltrados = productos.filter(
+        (p) =>
+            p.producto.toLowerCase().includes(busqueda.toLowerCase()) ||
+            p.categoria.toLowerCase().includes(busqueda.toLowerCase())
     );
 
-    const getBadgeStyle = (estado?: string) => {
-        switch (estado) {
-            case 'Disponible':
-                return { bg: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: '#10b981' };
-            case 'Stock bajo':
-                return { bg: 'rgba(234, 179, 8, 0.1)', color: '#eab308', border: '#eab308' };
-            case 'Agotado':
-                return { bg: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '#ef4444' };
-            default:
-                return { bg: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', border: '#3b82f6' };
-        }
+    const getEstadoStyle = (estado: string) => {
+        const lower = estado.toLowerCase();
+        if (lower.includes('agot')) return { color: '#ef4444', borderColor: '#ef4444' };
+        if (lower.includes('bajo')) return { color: '#f59e0b', borderColor: '#f59e0b' };
+        return { color: '#10b981', borderColor: '#10b981' };
     };
 
     return (
         <div style={styles.container}>
-            {/* Barra lateral con rol dinámico */}
             <aside style={styles.sidebar}>
                 <div>
                     <div style={styles.brandContainer}>
@@ -114,6 +172,7 @@ export default function InventoryList() {
                         <Link to="/appointments" style={styles.navLink}>Citas</Link>
                         <Link to="/inventory" style={{ ...styles.navLink, ...styles.activeLink }}>Inventario</Link>
                         {isAdmin && <Link to="/reports" style={styles.navLink}>Reportes</Link>}
+                        {isAdmin && <Link to="/users/new" style={styles.navLink}>Registro</Link>}
                         <Link to="/orders" style={styles.navLink}>Órdenes</Link>
                     </nav>
                 </div>
@@ -125,7 +184,6 @@ export default function InventoryList() {
                 </div>
             </aside>
 
-            {/* Contenido Principal */}
             <main style={styles.mainContent}>
                 <header style={styles.header}>
                     <div>
@@ -142,27 +200,22 @@ export default function InventoryList() {
                 </header>
 
                 <div style={styles.toolbar}>
-                    <div style={{ width: '100%', display: 'flex', justifyContent: 'flex-end', gap: '15px', alignItems: 'center' }}>
-                        <button
-                            onClick={() => navigate('/inventory/new')}
-                            style={styles.newButton}
-                        >
-                            + Agregar producto
-                        </button>
-                        <div style={styles.searchContainer}>
-                            <span style={styles.searchIcon}>🔍</span>
-                            <input
-                                type="text"
-                                placeholder="Buscar producto..."
-                                value={busqueda}
-                                onChange={(e) => setBusqueda(e.target.value)}
-                                style={styles.searchInput}
-                            />
-                        </div>
+                    <button onClick={() => navigate('/inventory/new')} style={styles.newButton}>
+                        + Agregar producto
+                    </button>
+
+                    <div style={styles.searchContainer}>
+                        <span style={styles.searchIcon}>🔍</span>
+                        <input
+                            type="text"
+                            placeholder="Buscar producto..."
+                            value={busqueda}
+                            onChange={(e) => setBusqueda(e.target.value)}
+                            style={styles.searchInput}
+                        />
                     </div>
                 </div>
 
-                {/* Tabla de Inventario */}
                 <div style={styles.tableCard}>
                     <table style={styles.table}>
                         <thead>
@@ -180,35 +233,75 @@ export default function InventoryList() {
                             {loading ? (
                                 <tr>
                                     <td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
-                                        Cargando inventario desde Supabase...
+                                        Cargando inventario...
                                     </td>
                                 </tr>
-                            ) : inventarioFiltrado.length > 0 ? (
-                                inventarioFiltrado.map((item) => {
-                                    const badge = getBadgeStyle(item.estado);
+                            ) : productosFiltrados.length > 0 ? (
+                                productosFiltrados.map((prod) => {
+                                    const badgeColor = getEstadoStyle(prod.estado);
+                                    const estaEditando = editandoId === prod.id;
+
                                     return (
-                                        <tr key={item.id} style={styles.trBody}>
-                                            <td style={styles.td}>{item.id}</td>
-                                            <td style={styles.td}>{item.producto}</td>
-                                            <td style={styles.td}>{item.categoria}</td>
-                                            <td style={styles.td}>{item.stock}</td>
-                                            <td style={styles.td}>${Number(item.precio || 0).toLocaleString()}</td>
+                                        <tr key={prod.id} style={styles.trBody}>
+                                            <td style={styles.td}>{prod.id}</td>
+                                            <td style={styles.td}>{prod.producto}</td>
+                                            <td style={styles.td}>{prod.categoria}</td>
                                             <td style={styles.td}>
-                                                <span style={{
-                                                    backgroundColor: badge.bg,
-                                                    color: badge.color,
-                                                    border: `1px solid ${badge.border}`,
-                                                    padding: '4px 12px',
-                                                    borderRadius: '20px',
-                                                    fontSize: '12px',
-                                                    fontWeight: 'bold'
-                                                }}>
-                                                    {item.estado}
+                                                {estaEditando ? (
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                        <input
+                                                            type="number"
+                                                            min={0}
+                                                            value={stockTemporal}
+                                                            onChange={(e) => setStockTemporal(Number(e.target.value))}
+                                                            style={styles.stockInput}
+                                                        />
+                                                        <button
+                                                            onClick={() => guardarStock(prod)}
+                                                            style={styles.saveBtn}
+                                                            title="Guardar stock"
+                                                        >
+                                                            💾
+                                                        </button>
+                                                        <button
+                                                            onClick={() => setEditandoId(null)}
+                                                            style={styles.cancelBtn}
+                                                            title="Cancelar"
+                                                        >
+                                                            ✖
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <span>{prod.stock}</span>
+                                                )}
+                                            </td>
+                                            <td style={styles.td}>${prod.precio.toLocaleString()}</td>
+                                            <td style={styles.td}>
+                                                <span
+                                                    style={{
+                                                        ...styles.badge,
+                                                        color: badgeColor.color,
+                                                        borderColor: badgeColor.borderColor
+                                                    }}
+                                                >
+                                                    {prod.estado}
                                                 </span>
                                             </td>
                                             <td style={styles.td}>
-                                                <button style={styles.actionBtn} title="Editar">✏️</button>
-                                                <button style={{ ...styles.actionBtn, color: '#ef4444' }} title="Eliminar">🗑️</button>
+                                                <button
+                                                    onClick={() => iniciarEdicionStock(prod)}
+                                                    style={styles.editBtn}
+                                                    title="Editar stock"
+                                                >
+                                                    ✏️
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDelete(prod)}
+                                                    style={styles.deleteBtn}
+                                                    title="Eliminar"
+                                                >
+                                                    🗑️
+                                                </button>
                                             </td>
                                         </tr>
                                     );
@@ -216,7 +309,7 @@ export default function InventoryList() {
                             ) : (
                                 <tr>
                                     <td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
-                                        No se encontraron productos en el inventario.
+                                        No se encontraron productos registrados.
                                     </td>
                                 </tr>
                             )}
@@ -228,12 +321,11 @@ export default function InventoryList() {
     );
 }
 
-// Estilos Ciber-Industrial
 const styles: { [key: string]: React.CSSProperties } = {
     container: { display: 'flex', minHeight: '100vh', backgroundColor: '#050811', color: '#fff', fontFamily: 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif' },
     sidebar: { width: '260px', backgroundColor: '#070a14', borderRight: '1px solid #1e293b', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '20px' },
     brandContainer: { textAlign: 'center', marginBottom: '25px' },
-    logoImage: { width: '100%', maxWidth: '160px', borderRadius: '12px', border: '1px solid #1e293b', boxShadow: '0 0 15px rgba(0, 123, 255, el 0.2)' },
+    logoImage: { width: '100%', maxWidth: '160px', borderRadius: '12px', border: '1px solid #1e293b', boxShadow: '0 0 15px rgba(0, 123, 255, 0.2)' },
     nav: { display: 'flex', flexDirection: 'column', gap: '6px' },
     navLink: { color: '#94a3b8', textDecoration: 'none', padding: '10px 15px', borderRadius: '8px', transition: '0.2s', fontSize: '14px' },
     activeLink: { backgroundColor: '#1d4ed8', color: '#fff', fontWeight: '500', boxShadow: '0 0 10px rgba(29, 78, 216, 0.4)' },
@@ -258,5 +350,10 @@ const styles: { [key: string]: React.CSSProperties } = {
     th: { padding: '15px 20px', fontWeight: '600' },
     trBody: { borderBottom: '1px solid #1e293b', transition: 'background 0.2s' },
     td: { padding: '15px 20px', color: '#cbd5e1' },
-    actionBtn: { background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '16px', marginRight: '8px', color: '#3b82f6' }
+    stockInput: { width: '70px', backgroundColor: '#070a14', color: '#fff', border: '1px solid #3b82f6', borderRadius: '6px', padding: '4px 8px', fontSize: '13px', outline: 'none' },
+    saveBtn: { background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '15px' },
+    cancelBtn: { background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '13px', color: '#94a3b8' },
+    badge: { backgroundColor: '#070a14', border: '1px solid', padding: '4px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold' },
+    editBtn: { background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '16px', marginRight: '8px' },
+    deleteBtn: { background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '16px', color: '#ef4444' }
 };

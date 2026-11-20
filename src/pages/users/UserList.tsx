@@ -3,12 +3,21 @@ import { useNavigate, Link } from 'react-router-dom';
 import logoMonostyle from '../../assets/logo.png';
 import { supabase } from '../../api/supabaseCliente';
 
+interface UsuarioFila {
+    id: number | string;
+    nombre: string;
+    telefono: string;
+    correo: string;
+    rol: 'Cliente' | 'Empleado';
+    estado: string;
+}
+
 export default function UserList() {
     const navigate = useNavigate();
-    const [usuarios, setUsuarios] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
+    const [usuarios, setUsuarios] = useState<UsuarioFila[]>([]);
+    const [filtroRol, setFiltroRol] = useState<'Todos' | 'Cliente' | 'Empleado'>('Todos');
     const [busqueda, setBusqueda] = useState('');
-    const [filtroTipo, setFiltroTipo] = useState('todos'); // 'todos', 'clientes', 'empleados'
+    const [loading, setLoading] = useState(true);
 
     const [userName, setUserName] = useState('Usuario');
     const [userRole, setUserRole] = useState('Empleado');
@@ -25,63 +34,60 @@ export default function UserList() {
             console.error(e);
         }
 
-        fetchUsuarios();
+        cargarUsuarios();
     }, []);
 
-    const fetchUsuarios = async () => {
+    const cargarUsuarios = async () => {
         try {
             setLoading(true);
-            let listaUsuarios: any[] = [];
+            const lista: UsuarioFila[] = [];
 
-            // 1. Obtener Clientes
-            const { data: clientes, error: errCli } = await supabase.from('cliente').select('*');
-            if (!errCli && clientes) {
-                const cliMapeados = clientes.map(c => ({
-                    id: c.id || c.id_cliente || `cli-${Math.random()}`,
-                    nombre: c.nombre || c.nombre_cliente || 'Sin nombre',
-                    telefono: c.telefono || c.celular || 'N/A',
-                    correo: c.correo || c.email || c.credenciales || 'N/A',
-                    rol: 'Cliente',
-                    estado: c.estado || 'Activo'
-                }));
-                listaUsuarios = [...listaUsuarios, ...cliMapeados];
-            }
-
-            // 2. Si es Administrador, permitir ver empleados y administradores también
-            // (Los empleados pueden ver clientes o tener restricciones si se desea)
-            const { data: empleados, error: errEmp } = await supabase.from('empleado').select('*');
-            if (!errEmp && empleados) {
-                const empMapeados = empleados.map(e => ({
-                    id: e.id || e.id_empleado || `emp-${Math.random()}`,
-                    nombre: e.nombre || e.usuario || 'Sin nombre',
-                    telefono: e.telefono || 'N/A',
-                    correo: e.correo || e.credenciales || 'N/A',
-                    rol: 'Empleado',
-                    estado: e.estado || 'Activo'
-                }));
-                listaUsuarios = [...listaUsuarios, ...empMapeados];
-            }
-
-            if (userRole === 'Administrador') {
-                const { data: admins, error: errAdmin } = await supabase.from('administrador').select('*');
-                if (!errAdmin && admins) {
-                    const adminMapeados = admins.map(a => ({
-                        id: a.id || a.id_administrador || `admin-${Math.random()}`,
-                        nombre: a.nombre || a.usuario || 'Sin nombre',
-                        telefono: a.telefono || 'N/A',
-                        correo: a.correo || 'N/A',
-                        rol: 'Administrador',
-                        estado: a.estado || 'Activo'
-                    }));
-                    listaUsuarios = [...listaUsuarios, ...adminMapeados];
+            const { data: clientes } = await supabase.from('cliente').select('*');
+            if (clientes) {
+                for (const c of clientes as any[]) {
+                    lista.push({
+                        id: c.id_cliente ?? c.id,
+                        nombre: c.nombre_completo || c.nombre || 'Sin nombre',
+                        telefono: c.telefono || 'N/A',
+                        correo: c.correo || c.email || 'N/A',
+                        rol: 'Cliente',
+                        estado: c.estado || 'Activo'
+                    });
                 }
             }
 
-            setUsuarios(listaUsuarios);
+            const { data: empleados } = await supabase.from('empleado').select('*');
+            if (empleados) {
+                for (const e of empleados as any[]) {
+                    lista.push({
+                        id: e.id_empleado ?? e.id,
+                        nombre: e.nombre_completo || e.nombre || 'Sin nombre',
+                        telefono: e.telefono || 'N/A',
+                        correo: e.correo || e.email || 'N/A',
+                        rol: 'Empleado',
+                        estado: e.estado || 'Activo'
+                    });
+                }
+            }
+
+            setUsuarios(lista);
         } catch (err) {
-            console.error('Error al cargar usuarios:', err);
+            console.error('Error cargando usuarios:', err);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleDelete = async (u: UsuarioFila) => {
+        try {
+            if (u.rol === 'Cliente') {
+                await supabase.from('cliente').delete().eq('id_cliente', u.id);
+            } else {
+                await supabase.from('empleado').delete().eq('id_empleado', u.id);
+            }
+            setUsuarios((prev) => prev.filter((item) => !(item.id === u.id && item.rol === u.rol)));
+        } catch (err) {
+            console.error('Error eliminando usuario:', err);
         }
     };
 
@@ -91,18 +97,23 @@ export default function UserList() {
         navigate('/login');
     };
 
-    const usuariosFiltrados = usuarios.filter(u => {
-        const matchTexto = u.nombre.toLowerCase().includes(busqueda.toLowerCase()) ||
-                           u.correo.toLowerCase().includes(busqueda.toLowerCase());
+    const isAdmin = userRole === 'Administrador';
+    const homeRoute = isAdmin ? '/admin/dashboard' : '/employee/dashboard';
 
-        if (filtroTipo === 'clientes') return matchTexto && u.rol === 'Cliente';
-        if (filtroTipo === 'empleados') return matchTexto && (u.rol === 'Empleado' || u.rol === 'Administrador');
-        return matchTexto;
+    const usuariosFiltrados = usuarios.filter((u) => {
+        const coincideRol = filtroRol === 'Todos' || u.rol === filtroRol;
+        const texto = busqueda.trim().toLowerCase();
+        const coincideTexto =
+            !texto ||
+            String(u.id).toLowerCase().includes(texto) ||
+            u.nombre.toLowerCase().includes(texto) ||
+            u.telefono.toLowerCase().includes(texto) ||
+            u.correo.toLowerCase().includes(texto);
+        return coincideRol && coincideTexto;
     });
 
     return (
         <div style={styles.container}>
-            {/* Barra lateral dinámica */}
             <aside style={styles.sidebar}>
                 <div>
                     <div style={styles.brandContainer}>
@@ -110,15 +121,13 @@ export default function UserList() {
                     </div>
 
                     <nav style={styles.nav}>
-                        <Link to={userRole === 'Administrador' ? "/admin/dashboard" : "/employee/dashboard"} style={styles.navLink}>Inicio</Link>
+                        <Link to={homeRoute} style={styles.navLink}>Inicio</Link>
                         <Link to="/users" style={{ ...styles.navLink, ...styles.activeLink }}>Usuario</Link>
                         <Link to="/services" style={styles.navLink}>Servicios</Link>
                         <Link to="/appointments" style={styles.navLink}>Citas</Link>
                         <Link to="/inventory" style={styles.navLink}>Inventario</Link>
-                        <Link to="/reports" style={styles.navLink}>Reportes</Link>
-                        {userRole === 'Administrador' && (
-                            <Link to="/users/new" style={styles.navLink}>Registro</Link>
-                        )}
+                        {isAdmin && <Link to="/reports" style={styles.navLink}>Reportes</Link>}
+                        {isAdmin && <Link to="/users/new" style={styles.navLink}>Registro</Link>}
                         <Link to="/orders" style={styles.navLink}>Órdenes</Link>
                     </nav>
                 </div>
@@ -130,12 +139,13 @@ export default function UserList() {
                 </div>
             </aside>
 
-            {/* Contenido Principal */}
             <main style={styles.mainContent}>
                 <header style={styles.header}>
                     <div>
                         <h2 style={styles.pageTitle}>Gestión de Usuarios y Personal</h2>
-                        <p style={styles.pageSubtitle}>Registros sincronizados del sistema</p>
+                        <p style={styles.pageSubtitle}>
+                            Registros sincronizados del sistema (clic en un usuario para ver servicios pendientes)
+                        </p>
                     </div>
                     <div style={styles.userInfo}>
                         <div style={styles.userAvatar}>👤</div>
@@ -149,51 +159,42 @@ export default function UserList() {
                 <div style={styles.toolbar}>
                     <div style={styles.filterGroup}>
                         <button
-                            onClick={() => setFiltroTipo('todos')}
-                            style={filtroTipo === 'todos' ? styles.filterBtnActive : styles.filterBtn}
+                            type="button"
+                            onClick={() => setFiltroRol('Todos')}
+                            style={{ ...styles.filterBtn, ...(filtroRol === 'Todos' ? styles.filterBtnActive : {}) }}
                         >
                             Todos
                         </button>
                         <button
-                            onClick={() => setFiltroTipo('clientes')}
-                            style={filtroTipo === 'clientes' ? styles.filterBtnActive : styles.filterBtn}
+                            type="button"
+                            onClick={() => setFiltroRol('Cliente')}
+                            style={{ ...styles.filterBtn, ...(filtroRol === 'Cliente' ? styles.filterBtnActive : {}) }}
                         >
                             Clientes
                         </button>
-                        {userRole === 'Administrador' && (
-                            <button
-                                onClick={() => setFiltroTipo('empleados')}
-                                style={filtroTipo === 'empleados' ? styles.filterBtnActive : styles.filterBtn}
-                            >
-                                Empleados
-                            </button>
-                        )}
+                        <button
+                            type="button"
+                            onClick={() => setFiltroRol('Empleado')}
+                            style={{ ...styles.filterBtn, ...(filtroRol === 'Empleado' ? styles.filterBtnActive : {}) }}
+                        >
+                            Empleados
+                        </button>
                     </div>
 
-                    <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
-                        {/* El botón de nuevo registro solo aparece si es Administrador */}
-                        {userRole === 'Administrador' && (
-                            <button
-                                onClick={() => navigate('/users/new')}
-                                style={styles.newButton}
-                            >
-                                + Nuevo Registro
-                            </button>
-                        )}
-                        <div style={styles.searchContainer}>
-                            <span style={styles.searchIcon}>🔍</span>
-                            <input
-                                type="text"
-                                placeholder="Buscar usuario..."
-                                value={busqueda}
-                                onChange={(e) => setBusqueda(e.target.value)}
-                                style={styles.searchInput}
-                            />
-                        </div>
+                    <div style={styles.rightActions}>
+                        <button onClick={() => navigate('/users/new')} style={styles.newButton}>
+                            + Nuevo Registro
+                        </button>
+                        <input
+                            type="text"
+                            value={busqueda}
+                            onChange={(e) => setBusqueda(e.target.value)}
+                            placeholder="Buscar usuario..."
+                            style={styles.searchInput}
+                        />
                     </div>
                 </div>
 
-                {/* Tabla de Usuarios */}
                 <div style={styles.tableCard}>
                     <table style={styles.table}>
                         <thead>
@@ -204,61 +205,65 @@ export default function UserList() {
                                 <th style={styles.th}>Correo / Credencial</th>
                                 <th style={styles.th}>Rol</th>
                                 <th style={styles.th}>Estado</th>
-                                {userRole === 'Administrador' && <th style={styles.th}>Acciones</th>}
+                                <th style={styles.th}>Acciones</th>
                             </tr>
                         </thead>
                         <tbody>
                             {loading ? (
                                 <tr>
-                                    <td colSpan={userRole === 'Administrador' ? 7 : 6} style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
-                                        Cargando registros...
+                                    <td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+                                        Cargando usuarios...
                                     </td>
                                 </tr>
                             ) : usuariosFiltrados.length > 0 ? (
-                                usuariosFiltrados.map((usr, idx) => (
-                                    <tr key={usr.id || idx} style={styles.trBody}>
-                                        <td style={styles.td}>{usr.id}</td>
-                                        <td style={styles.td}>{usr.nombre}</td>
-                                        <td style={styles.td}>{usr.telefono}</td>
-                                        <td style={styles.td}>{usr.correo}</td>
+                                usuariosFiltrados.map((u) => (
+                                    <tr
+                                        key={`${u.rol}-${u.id}`}
+                                        onClick={() => navigate(`/users/${u.id}`, { state: { usuario: u } })}
+                                        style={{ ...styles.trBody, cursor: 'pointer' }}
+                                    >
+                                        <td style={styles.td}>{u.id}</td>
+                                        <td style={styles.td}>{u.nombre}</td>
+                                        <td style={styles.td}>{u.telefono}</td>
+                                        <td style={styles.td}>{u.correo}</td>
                                         <td style={styles.td}>
-                                            <span style={{
-                                                backgroundColor: usr.rol === 'Administrador' ? 'rgba(239, 68, 68, 0.1)' : usr.rol === 'Empleado' ? 'rgba(59, 130, 246, 0.1)' : 'rgba(16, 185, 129, 0.1)',
-                                                color: usr.rol === 'Administrador' ? '#ef4444' : usr.rol === 'Empleado' ? '#3b82f6' : '#10b981',
-                                                border: `1px solid ${usr.rol === 'Administrador' ? '#ef4444' : usr.rol === 'Empleado' ? '#3b82f6' : '#10b981'}`,
-                                                padding: '4px 12px',
-                                                borderRadius: '20px',
-                                                fontSize: '12px',
-                                                fontWeight: 'bold'
-                                            }}>
-                                                {usr.rol}
+                                            <span
+                                                style={{
+                                                    ...styles.badge,
+                                                    borderColor: u.rol === 'Cliente' ? '#10b981' : '#3b82f6',
+                                                    color: u.rol === 'Cliente' ? '#34d399' : '#60a5fa'
+                                                }}
+                                            >
+                                                {u.rol}
                                             </span>
                                         </td>
                                         <td style={styles.td}>
-                                            <span style={{
-                                                backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                                                color: '#10b981',
-                                                border: '1px solid #10b981',
-                                                padding: '4px 12px',
-                                                borderRadius: '20px',
-                                                fontSize: '12px',
-                                                fontWeight: 'bold'
-                                            }}>
-                                                {usr.estado}
+                                            <span
+                                                style={{
+                                                    ...styles.badge,
+                                                    borderColor: '#10b981',
+                                                    color: '#34d399'
+                                                }}
+                                            >
+                                                {u.estado}
                                             </span>
                                         </td>
-                                        {userRole === 'Administrador' && (
-                                            <td style={styles.td}>
-                                                <button style={styles.actionBtn} title="Editar">✏️</button>
-                                                <button style={{ ...styles.actionBtn, color: '#ef4444' }} title="Eliminar">🗑️</button>
-                                            </td>
-                                        )}
+                                        <td style={styles.td} onClick={(e) => e.stopPropagation()}>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleDelete(u)}
+                                                style={styles.deleteBtn}
+                                                title="Eliminar"
+                                            >
+                                                🗑️
+                                            </button>
+                                        </td>
                                     </tr>
                                 ))
                             ) : (
                                 <tr>
-                                    <td colSpan={userRole === 'Administrador' ? 7 : 6} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
-                                        No se encontraron usuarios registrados.
+                                    <td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
+                                        No se encontraron usuarios.
                                     </td>
                                 </tr>
                             )}
@@ -270,7 +275,6 @@ export default function UserList() {
     );
 }
 
-// Estilos Ciber-Industrial
 const styles: { [key: string]: React.CSSProperties } = {
     container: { display: 'flex', minHeight: '100vh', backgroundColor: '#050811', color: '#fff', fontFamily: 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif' },
     sidebar: { width: '260px', backgroundColor: '#070a14', borderRight: '1px solid #1e293b', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '20px' },
@@ -284,24 +288,24 @@ const styles: { [key: string]: React.CSSProperties } = {
     mainContent: { flex: 1, padding: '30px', overflowY: 'auto' },
     header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', borderBottom: '1px solid #1e293b', paddingBottom: '20px' },
     pageTitle: { fontSize: '22px', fontWeight: 'bold', margin: 0 },
-    pageSubtitle: { color: '#64748b', fontSize: '13px', margin: 0 },
+    pageSubtitle: { color: '#64748b', fontSize: '13px', margin: '4px 0 0 0' },
     userInfo: { display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: '#0d1322', padding: '8px 15px', borderRadius: '12px', border: '1px solid #1e293b' },
     userAvatar: { fontSize: '20px' },
     userName: { fontSize: '14px', fontWeight: 'bold', margin: 0 },
     userRole: { fontSize: '11px', color: '#3b82f6', margin: 0 },
-    toolbar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' },
-    filterGroup: { display: 'flex', gap: '10px' },
-    filterBtn: { backgroundColor: '#0d1322', color: '#94a3b8', border: '1px solid #1e293b', padding: '8px 16px', borderRadius: '20px', fontSize: '13px', cursor: 'pointer', fontWeight: '500' },
-    filterBtnActive: { backgroundColor: '#1d4ed8', color: '#fff', border: '1px solid #1d4ed8', padding: '8px 16px', borderRadius: '20px', fontSize: '13px', cursor: 'pointer', fontWeight: 'bold', boxShadow: '0 0 10px rgba(29, 78, 216, 0.4)' },
-    newButton: { backgroundColor: '#1d4ed8', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px', boxShadow: '0 0 10px rgba(29, 78, 216, 0.4)' },
-    searchContainer: { position: 'relative' },
-    searchIcon: { position: 'absolute', left: '12px', top: '10px', fontSize: '13px' },
-    searchInput: { backgroundColor: '#0d1322', border: '1px solid #1e293b', borderRadius: '8px', padding: '9px 12px 9px 35px', color: '#fff', fontSize: '13px', outline: 'none', width: '220px' },
-    tableCard: { backgroundColor: '#0d1322', border: '1px solid #1e293b', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.5)' },
+    toolbar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginBottom: '20px' },
+    filterGroup: { display: 'flex', gap: '8px' },
+    filterBtn: { backgroundColor: '#0d1322', color: '#cbd5e1', border: '1px solid #1e293b', padding: '8px 16px', borderRadius: '20px', cursor: 'pointer', fontSize: '13px' },
+    filterBtnActive: { backgroundColor: '#1d4ed8', color: '#fff', borderColor: '#1d4ed8', fontWeight: 600 },
+    rightActions: { display: 'flex', gap: '12px', alignItems: 'center' },
+    newButton: { backgroundColor: '#1d4ed8', color: '#fff', border: 'none', padding: '10px 18px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' },
+    searchInput: { backgroundColor: '#0d1322', border: '1px solid #1e293b', borderRadius: '8px', padding: '9px 14px', color: '#fff', fontSize: '13px', outline: 'none' },
+    tableCard: { backgroundColor: '#0d1322', border: '1px solid #1e293b', borderRadius: '12px', overflow: 'hidden' },
     table: { width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' },
     trHead: { backgroundColor: '#070a14', borderBottom: '1px solid #1e293b', color: '#94a3b8', fontSize: '13px' },
     th: { padding: '15px 20px', fontWeight: '600' },
-    trBody: { borderBottom: '1px solid #1e293b', transition: 'background 0.2s' },
-    td: { padding: '15px 20px', color: '#cbd5e1' },
-    actionBtn: { background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '16px', marginRight: '8px', color: '#3b82f6' }
+    trBody: { borderBottom: '1px solid #1e293b' },
+    td: { padding: '15px 20px', color: '#cbd5e1', verticalAlign: 'middle' },
+    badge: { padding: '4px 12px', borderRadius: '20px', border: '1px solid', fontSize: '12px', fontWeight: 600 },
+    deleteBtn: { background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '16px', color: '#ef4444' }
 };
